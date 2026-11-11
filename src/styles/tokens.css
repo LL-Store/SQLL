@@ -1,0 +1,148 @@
+/* ============================================================
+ * 设计令牌（唯一颜色来源）
+ *
+ * 下面两块定义同一批变量：`:root` 是浅色，`[data-theme='dark']` 是深色。
+ * 组件样式里禁止写死颜色，一律用 `var(--*)`；切主题时只换这里的值，
+ * 不需要重建组件。新增颜色请两块一起加，否则深色下会退回浅色值。
+ * ============================================================ */
+
+:root {
+  /* ---- 设计令牌：与 design/*.html 保持同源，改主题只改这里 ---- */
+  --bg: #ffffff;
+  --panel: #f7f8fa;
+  --panel-2: #fafbfc;
+  --line: #e8eaed;
+  --line-2: #eff1f3;
+  --hline: #f4f5f7;
+  --hover: #f2f3f5;
+  --sel: #fdecea;
+  --sel-text: #c4402b;
+  --accent: #e5533d;
+  --accent-weak: #f8d9d3;
+  --accent-soft: #fdf3f1;
+  --text: #1f2329;
+  --text-2: #4e5561;
+  --text-3: #6b7280;
+  --muted: #8a8f99;
+  --muted-2: #a8adb6;
+  --success: #1d7a3c;
+  --success-bg: #e8f6ec;
+  --danger: #d14328;
+  --scroll-thumb: #dfe3e8;
+  --scroll-thumb-hover: #ccd2da;
+  --warn-bg: #fff8e6;
+  --warn-line: #f2e2b4;
+  --warn-text: #8a6a1f;
+
+  /* ---- 尺寸 ---- */
+  --header-h: 38px;
+  --sidebar-w: 260px;
+  --tabs-h: 36px;
+  --toolbar-h: 32px;
+  --status-h: 26px;
+  --inspector-w: 232px;
+  --row-h: 26px;
+  --tree-indent: 14px;
+
+  /* ---- 字体 ---- */
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial,
+    sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fz: 12.5px;
+  --fz-sm: 11.5px;
+  --fz-xs: 10.5px;
+}
+
+:root[data-theme='dark'] {
+  --bg: #14161a;
+  --panel: #191c21;
+  --panel-2: #1c1f25;
+  --line: #2b3037;
+  --line-2: #23272e;
+  --hline: #1f232a;
+  --hover: #23272e;
+  --sel: #3a211c;
+  --sel-text: #ff8f77;
+  --accent: #e5533d;
+  --accent-weak: #4a2a24;
+  --accent-soft: #2a1c19;
+  --text: #e6e9ee;
+  --text-2: #b6bcc6;
+  --text-3: #8b929c;
+  --muted: #767d87;
+  --muted-2: #5f666f;
+  --success: #5ec07e;
+  --success-bg: #17301f;
+  --danger: #ff6b52;
+  --scroll-thumb: #333942;
+  --scroll-thumb-hover: #454c57;
+  --warn-bg: #2c2416;
+  --warn-line: #4a3d21;
+  --warn-text: #d8b567;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fz);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: default;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  border: none;
+  outline: none;
+  background: none;
+  user-select: text;
+}
+
+ul {
+  list-style: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

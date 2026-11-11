@@ -1,0 +1,17 @@
+.host {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.host :global(.cm-editor) {
+  height: 100%;
+}
+
+.host :global(.cm-editor.cm-focused) {
+  outline: none;
+}
+
+.host :global(.cm-scroller) {
+  overflow: auto;
+}

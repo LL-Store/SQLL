@@ -1,0 +1,59 @@
+{
+  "name": "sqll",
+  "version": "0.1.0-alpha.0",
+  "description": "一款轻量级的数据库管理应用，支持多种数据库类型，提供可视化的操作界面和丰富的功能，帮助用户高效地管理和操作数据库。",
+  "private": true,
+  "scripts": {
+    "version:sync": "node scripts/sync-version.mjs",
+    "predev": "npm run version:sync",
+    "dev": "webpack serve --mode development",
+    "prebuild": "npm run version:sync",
+    "build": "webpack --mode production",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LL-Store/SQLL.git"
+  },
+  "keywords": [
+    "sql",
+    "database",
+    "management",
+    "visualization",
+    "tools"
+  ],
+  "author": "zxl20070701",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/LL-Store/SQLL/issues"
+  },
+  "homepage": "https://github.com/LL-Store/SQLL#readme",
+  "dependencies": {
+    "@codemirror/lang-sql": "^6.10.0",
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-opener": "^2.7.3",
+    "codemirror": "^6.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.9.3",
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.3",
+    "mini-css-extract-plugin": "^2.9.2",
+    "style-loader": "^4.0.0",
+    "swc-loader": "^0.2.6",
+    "typescript": "^5.6.3",
+    "webpack": "^5.96.1",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^5.1.0"
+  }
+}

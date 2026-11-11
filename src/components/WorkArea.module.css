@@ -1,0 +1,612 @@
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  min-height: 0;
+}
+
+.emptyArea {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(620px 340px at 50% 40%, #fefbfa 0%, #ffffff 72%);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 470px;
+  padding-bottom: 52px;
+  text-align: center;
+}
+
+.title {
+  margin-top: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.desc {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+
+.primary {
+  margin-top: 18px;
+  height: 32px;
+  padding: 0 15px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(229, 83, 61, 0.24);
+}
+
+.primary:hover {
+  background: var(--danger);
+}
+
+.support {
+  margin-top: 14px;
+  font-size: var(--fz-xs);
+  color: var(--muted-2);
+}
+
+/* ---- Tab 栏 ---- */
+
+.tabs {
+  height: var(--tabs-h);
+  flex: 0 0 var(--tabs-h);
+  display: flex;
+  align-items: stretch;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  /* 标签总宽度超过可视区时横向滚动，而不是把新标签挤出屏幕 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tabs::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 2px;
+}
+
+.tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 12px;
+  background: var(--panel-2);
+  border-right: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: default;
+  max-width: 220px;
+}
+
+.tab:hover {
+  background: #f0f2f4;
+}
+
+.tabOn {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: inset 0 2px 0 var(--accent);
+  font-weight: 600;
+}
+
+.tabOn:hover {
+  background: var(--bg);
+}
+
+.tabDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 6px;
+}
+
+.tabTitle {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabClose {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--muted-2);
+  border-radius: 3px;
+}
+
+.tabClose:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.tabBlank {
+  flex: 1 0 0;
+  min-width: 0;
+}
+
+/* ---- 工具条 ---- */
+
+.toolbar {
+  height: var(--toolbar-h);
+  flex: 0 0 var(--toolbar-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+  /* 工具条整体不换行：窗口变窄时让筛选框收缩、右侧信息省略，而不是把按钮文字挤成两行 */
+  overflow: hidden;
+}
+
+.toolBtn {
+  height: 23px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.toolBtn:hover {
+  color: var(--accent);
+  border-color: var(--accent-weak);
+  background: var(--accent-soft);
+}
+
+.toolSep {
+  flex: none;
+  width: 1px;
+  height: 14px;
+  background: var(--line);
+}
+
+.tbHint {
+  color: var(--muted);
+}
+
+.tbMeta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loadingHint {
+  flex: none;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ---- 数据网格 ---- */
+
+.gridWrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  width: max-content;
+  min-width: 100%;
+  table-layout: fixed;
+}
+
+.th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 28px;
+  padding: 0 8px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--text-2);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowNoHead {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  height: 28px;
+  text-align: right;
+  padding: 0 8px;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--muted-2);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.td {
+  height: var(--row-h);
+  max-width: 360px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--hline);
+  border-right: 1px solid var(--line-2);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowNo {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  height: var(--row-h);
+  padding: 0 8px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted-2);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--hline);
+  border-right: 1px solid var(--line-2);
+}
+
+tbody tr:hover .td,
+tbody tr:hover .rowNo {
+  background: var(--panel-2);
+}
+
+.null {
+  color: var(--muted-2);
+  font-style: italic;
+}
+
+.num {
+  text-align: right;
+  font-family: var(--mono);
+}
+
+.boolT {
+  color: var(--success);
+  font-family: var(--mono);
+}
+
+.mutedCell {
+  color: #9aa0a8;
+  font-family: var(--mono);
+}
+
+.bin {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.tbMetaFail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--danger);
+}
+
+.errBox {
+  margin: 16px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--danger);
+  background: var(--accent-soft);
+  border: 1px solid #f6d5cf;
+  border-radius: 5px;
+}
+
+/* ---- SQL 编辑器 ---- */
+
+.toolOn {
+  color: var(--accent);
+  border-color: var(--accent-weak);
+  background: var(--accent-soft);
+}
+
+.filterInput {
+  width: 190px;
+  min-width: 88px;
+  flex: 0 1 190px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.filterInput::placeholder {
+  color: var(--muted-2);
+}
+
+.filterInput:focus {
+  outline: none;
+  border-color: var(--accent-weak);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.sortHint {
+  flex: none;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--sel-text);
+  background: var(--sel);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.sqlPane {
+  flex: 0 0 auto;
+  height: 208px;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.sqlBar {
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  padding: 0 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line-2);
+}
+
+.sqlTitle {
+  flex: none;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.sqlHint {
+  flex: none;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted-2);
+}
+
+.sqlRun {
+  height: 22px;
+  padding: 0 12px;
+  font-size: 11.5px;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.sqlRun:hover {
+  background: var(--danger);
+}
+
+.sqlRun:disabled {
+  background: var(--accent-weak);
+}
+
+.editorBox {
+  flex: 1;
+  min-height: 0;
+}
+
+.sqlErr {
+  flex: 0 0 auto;
+  max-height: 72px;
+  overflow: auto;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--danger);
+  background: var(--accent-soft);
+  border-top: 1px solid #f6d7d0;
+}
+
+.thSortable {
+  cursor: pointer;
+}
+
+.thSortable:hover {
+  color: var(--sel-text);
+  background: var(--accent-soft);
+}
+
+.thLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sortArrow {
+  margin-left: 4px;
+  color: var(--accent);
+  font-size: 10px;
+}
+
+/* ---- 单元格编辑 ---- */
+
+.tdEditing {
+  padding: 0;
+  background: var(--bg);
+}
+
+.cellInput {
+  width: 100%;
+  height: 100%;
+  min-height: var(--row-h);
+  padding: 0 7px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  outline: 2px solid var(--accent-soft);
+}
+
+/* ---- SQL 历史 ---- */
+
+.historyWrap {
+  position: relative;
+}
+
+.historyList {
+  position: absolute;
+  top: 26px;
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 10px 26px rgba(23, 27, 34, 0.16);
+}
+
+.historyItem {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.historyItem:hover {
+  background: var(--accent-soft);
+  color: var(--sel-text);
+}
+
+.historyEmpty {
+  padding: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.noticeHint {
+  flex: none;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--sel-text);
+  margin-left: 8px;
+}
+
+.sqlStop {
+  height: 23px;
+  padding: 0 11px;
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--bg);
+  border: 1px solid #eec4bc;
+  border-radius: 4px;
+}
+
+.sqlStop:hover {
+  background: var(--accent-soft);
+}
+
+.selHead,
+.selCell {
+  width: 26px;
+  padding: 0 0 0 8px;
+  text-align: left;
+}
+
+.selHead {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.selCell input,
+.selHead input {
+  margin: 0;
+  width: 12px;
+  height: 12px;
+  accent-color: var(--accent);
+}
+
+.rowSel td {
+  background: var(--sel);
+}
+
+.toolDanger {
+  flex: none;
+  white-space: nowrap;
+  color: var(--danger);
+  border-color: var(--accent-weak);
+}

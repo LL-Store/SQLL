@@ -1,0 +1,162 @@
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(23, 27, 34, 0.38);
+}
+
+.card {
+  width: 520px;
+  max-width: calc(100vw - 48px);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(23, 27, 34, 0.22);
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px 16px;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.close {
+  width: 22px;
+  height: 22px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  border-radius: 4px;
+}
+
+.close:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.body {
+  padding: 6px 16px 10px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hline);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.labelText {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.labelHint {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.seg {
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.segBtn {
+  min-width: 48px;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  border-radius: 4px;
+}
+
+.segOn {
+  color: var(--sel-text);
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgba(23, 27, 34, 0.1);
+  font-weight: 600;
+}
+
+.segOff {
+  color: var(--muted-2);
+  cursor: not-allowed;
+}
+
+.repo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+}
+
+.repoLink {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repoLink:hover {
+  text-decoration: underline;
+}
+
+.repoCopy {
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text-2);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.repoCopy:hover {
+  background: var(--hover);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  border-top: 1px solid var(--line-2);
+  background: var(--panel-2);
+}
+
+.ver {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.footHint {
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
