@@ -1,6 +1,6 @@
 {
   "name": "sqll",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0",
   "description": "一款轻量级的数据库管理应用，支持多种数据库类型，提供可视化的操作界面和丰富的功能，帮助用户高效地管理和操作数据库。",
   "private": true,
   "scripts": {

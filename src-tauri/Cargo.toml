@@ -1,6 +1,6 @@
 [package]
 name = "sqll"
-version = "0.1.0-alpha.0"
+version = "0.1.0"
 description = "SQLL - 轻量级数据库管理应用"
 authors = ["zxl20070701"]
 edition = "2021"
