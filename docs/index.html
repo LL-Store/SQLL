@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SQLL — 轻量跨平台数据库管理工具</title>
+<meta name="description" content="SQLL 是一款基于 Tauri 2 的轻量桌面数据库管理工具，连接 MySQL、PostgreSQL、SQLite，浏览库表、查看与编辑数据、执行 SQL、导出 CSV。" />
+<link rel="icon" type="image/png" href="assets/favicon.png" />
+<style>
+  /* ============ 设计令牌 ============ */
+  :root {
+    --bg: #0e1013;
+    --bg-2: #14161a;
+    --panel: #1a1d22;
+    --panel-2: #21252b;
+    --line: #2a2e35;
+    --line-2: #353a42;
+    --text: #e8eaed;
+    --text-2: #b6bcc5;
+    --text-3: #828994;
+    --accent: #c4402b;
+    --accent-soft: rgba(196, 64, 43, 0.14);
+    --accent-2: #e5533d;
+    --blue: #3a82d8;
+    --green: #5ba85b;
+    --mono: "SF Mono", "JetBrains Mono", "ui-monospace", "Cascadia Code", Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+    --maxw: 1120px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; text-decoration: none; }
+  img { max-width: 100%; display: block; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* ============ 顶部导航 ============ */
+  .nav {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(14, 16, 19, 0.82);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner {
+    max-width: var(--maxw); margin: 0 auto; padding: 0 24px;
+    height: 60px; display: flex; align-items: center; gap: 28px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: 0.2px; }
+  .brand img { width: 26px; height: 26px; border-radius: 6px; }
+  .brand .ver {
+    font-family: var(--mono); font-size: 11px; font-weight: 500;
+    color: var(--text-3); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 7px;
+  }
+  .nav-links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; color: var(--text-2); }
+  .nav-links a { transition: color .15s; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta {
+    font-size: 13.5px; font-weight: 600; color: #fff;
+    background: var(--accent); padding: 8px 16px; border-radius: 7px;
+    transition: background .15s, transform .15s;
+  }
+  .nav-cta:hover { background: var(--accent-2); }
+
+  /* ============ Hero ============ */
+  .hero {
+    position: relative; overflow: hidden;
+    padding: 96px 0 72px;
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(720px 360px at 70% -10%, rgba(196, 64, 43, 0.16), transparent 60%),
+      radial-gradient(520px 300px at 12% 20%, rgba(58, 130, 216, 0.10), transparent 60%);
+  }
+  .hero-inner { position: relative; text-align: center; max-width: 780px; margin: 0 auto; }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--text-2);
+    border: 1px solid var(--line-2); background: var(--panel);
+    border-radius: 999px; padding: 5px 14px; margin-bottom: 28px;
+  }
+  .hero-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .hero h1 {
+    font-size: clamp(34px, 5.2vw, 52px); line-height: 1.15; font-weight: 800;
+    letter-spacing: -0.5px; margin-bottom: 22px;
+  }
+  .hero h1 .hl { color: var(--accent-2); }
+  .hero p.lead {
+    font-size: clamp(15px, 1.6vw, 18px); color: var(--text-2);
+    max-width: 620px; margin: 0 auto 36px;
+  }
+  .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-size: 15px; font-weight: 600; border-radius: 9px; padding: 13px 24px;
+    transition: transform .15s, background .15s, border-color .15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-2); transform: translateY(-1px); }
+  .btn-ghost { border: 1px solid var(--line-2); color: var(--text); background: var(--panel); }
+  .btn-ghost:hover { border-color: var(--text-3); background: var(--panel-2); }
+  .btn svg { width: 17px; height: 17px; }
+
+  .hero-meta {
+    display: flex; gap: 30px; justify-content: center; flex-wrap: wrap;
+    margin-top: 40px; font-family: var(--mono); font-size: 13px; color: var(--text-3);
+  }
+  .hero-meta span { display: inline-flex; align-items: center; gap: 7px; }
+
+  /* ============ 主截图 ============ */
+  .shot-frame {
+    max-width: var(--maxw); margin: 56px auto 0; padding: 0 24px; position: relative;
+  }
+  .shot-frame .frame {
+    border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+    background: var(--panel-2);
+  }
+  .shot-frame img { width: 100%; }
+
+  /* ============ 通用区块 ============ */
+  section { padding: 88px 0; }
+  .section-head { max-width: 620px; margin-bottom: 48px; }
+  .section-head .kicker {
+    font-family: var(--mono); font-size: 12.5px; color: var(--accent-2);
+    letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 14px;
+  }
+  .section-head h2 { font-size: clamp(26px, 3.2vw, 34px); font-weight: 750; letter-spacing: -0.3px; margin-bottom: 14px; }
+  .section-head p { color: var(--text-2); font-size: 16px; }
+
+  /* ============ 特性栅格 ============ */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 13px;
+    padding: 26px; transition: border-color .15s, transform .15s;
+  }
+  .card:hover { border-color: var(--line-2); transform: translateY(-2px); }
+  .card .ico {
+    width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    background: var(--accent-soft); color: var(--accent-2); margin-bottom: 18px;
+  }
+  .card .ico svg { width: 21px; height: 21px; }
+  .card h3 { font-size: 16.5px; font-weight: 650; margin-bottom: 9px; }
+  .card p { font-size: 14px; color: var(--text-2); }
+
+  /* ============ 截图展示（交错） ============ */
+  .showcase { display: flex; flex-direction: column; gap: 72px; }
+  .show-row { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; align-items: center; }
+  .show-row:nth-child(even) .show-media { order: 2; }
+  .show-media {
+    border: 1px solid var(--line-2); border-radius: 13px; overflow: hidden; background: var(--panel-2);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+  }
+  .show-media img { width: 100%; }
+  .show-text .num {
+    font-family: var(--mono); font-size: 13px; color: var(--text-3); margin-bottom: 12px;
+  }
+  .show-text h3 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+  .show-text p { color: var(--text-2); font-size: 15px; }
+  .show-text ul { margin-top: 16px; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .show-text li { display: flex; gap: 10px; font-size: 14px; color: var(--text-2); }
+  .show-text li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); margin-top: 9px; flex-shrink: 0; }
+
+  /* ============ 数据库支持 ============ */
+  .db-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .db-card {
+    border: 1px solid var(--line); border-radius: 13px; padding: 26px; background: var(--panel);
+  }
+  .db-card .top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .db-card .logo-db {
+    width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-weight: 700; font-size: 13px;
+  }
+  .db-card h3 { font-size: 17px; font-weight: 650; }
+  .db-card p { font-size: 13.5px; color: var(--text-2); }
+  .db-card .tag { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); margin-top: 12px; }
+
+  /* ============ 技术栈条 ============ */
+  .stack {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--bg-2);
+    padding: 30px 32px; display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: center;
+  }
+  .stack .label { font-size: 14px; color: var(--text-3); margin-right: 6px; }
+  .chip {
+    font-family: var(--mono); font-size: 13px; color: var(--text-2);
+    border: 1px solid var(--line-2); background: var(--panel); border-radius: 7px; padding: 7px 13px;
+  }
+
+  /* ============ 下载 CTA ============ */
+  .download { text-align: center; border-top: 1px solid var(--line); }
+  .download .box {
+    border: 1px solid var(--line-2); border-radius: 20px; background: var(--panel);
+    padding: 60px 32px; position: relative; overflow: hidden;
+  }
+  .download .box::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(520px 260px at 50% 0%, rgba(196, 64, 43, 0.14), transparent 65%);
+  }
+  .download h2 { font-size: clamp(26px, 3.2vw, 34px); font-weight: 750; margin-bottom: 14px; position: relative; }
+  .download p { color: var(--text-2); max-width: 520px; margin: 0 auto 32px; position: relative; }
+  .download .actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; position: relative; }
+  .download .note { margin-top: 22px; font-family: var(--mono); font-size: 12.5px; color: var(--text-3); position: relative; }
+
+  /* ============ 页脚 ============ */
+  footer { border-top: 1px solid var(--line); padding: 34px 0; }
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .foot .brand { font-size: 15px; }
+  .foot .links { display: flex; gap: 20px; font-size: 13.5px; color: var(--text-3); }
+  .foot .links a:hover { color: var(--text-2); }
+  .foot .copy { font-size: 12.5px; color: var(--text-3); }
+
+  /* ============ 滚动入场 ============ */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .55s ease, transform .55s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
+
+  /* ============ 响应式 ============ */
+  @media (max-width: 900px) {
+    .features, .db-grid { grid-template-columns: repeat(2, 1fr); }
+    .show-row { grid-template-columns: 1fr; gap: 24px; }
+    .show-row:nth-child(even) .show-media { order: 0; }
+  }
+  @media (max-width: 600px) {
+    .nav-links { display: none; }
+    section { padding: 60px 0; }
+    .features, .db-grid { grid-template-columns: 1fr; }
+    .hero { padding: 64px 0 48px; }
+    .hero-meta { gap: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== 顶部导航 ===== -->
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top">
+      <img src="assets/logo.png" alt="SQLL 图标" />
+      SQLL
+      <span class="ver">v0.1.0</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#features">特性</a>
+      <a href="#showcase">界面预览</a>
+      <a href="#databases">数据库支持</a>
+      <a href="#stack">技术栈</a>
+    </nav>
+    <a class="nav-cta" href="https://github.com/LL-Store/SQLL/releases" target="_blank" rel="noopener">下载</a>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="top">
+  <div class="hero-inner">
+    <div class="hero-badge"><span class="dot"></span>Tauri 2 · Rust 内核 · 跨平台桌面</div>
+    <h1>专注「看数据、改数据」的<br /><span class="hl">轻量数据库管理工具</span></h1>
+    <p class="lead">
+      连上 MySQL、PostgreSQL 或 SQLite，左边展开库表结构，中间看数据、改单元格、跑 SQL、导出 CSV，
+      右边随时翻字段、索引与外键。装完即用，没有示例库、没有账号体系、没有用不上的面板。
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/LL-Store/SQLL/releases" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        下载安装包
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/LL-Store/SQLL" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.7 5.39-5.26 5.68.41.35.77 1.05.77 2.12 0 1.53-.01 2.76-.01 3.14 0 .3.2.67.8.55A11.52 11.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+        查看源码
+      </a>
+    </div>
+    <div class="hero-meta">
+      <span>MySQL 8+</span>
+      <span>PostgreSQL 14+</span>
+      <span>SQLite 3</span>
+      <span>macOS · Windows · Linux</span>
+    </div>
+  </div>
+
+  <div class="shot-frame">
+    <div class="frame">
+      <img src="screenshots/overview.png" alt="SQLL 主界面：左侧结构树、中间数据网格、右侧字段面板" fetchpriority="high" />
+    </div>
+  </div>
+</section>
+
+<!-- ===== 特性 ===== -->
+<section id="features">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Features</div>
+      <h2>三栏就是全部：找表、看数、看结构</h2>
+      <p>不用记快捷键，也不用先学一套查询语言才能打开一张表。围绕日常读表、改表的高频动作设计。</p>
+    </div>
+    <div class="features">
+      <div class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg></div>
+        <h3>三种数据库，同一套流程</h3>
+        <p>MySQL、PostgreSQL、SQLite 共用同一套浏览、编辑、SQL、导出流程，换库不用换肌肉记忆。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+        <h3>动数据之前，先看见 SQL</h3>
+        <p>改单元格、加一行、删一行、批量删，都会先弹出即将执行的语句；确认了才在事务里落库。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+        <h3>轻量、启动即用</h3>
+        <p>Tauri 2 打包的安装体约 17.5 MB，启动就是一张表，不占内存，也不催你登录。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg></div>
+        <h3>整库补全的 SQL 编辑器</h3>
+        <p>CodeMirror 6 按连接类型切方言，补全覆盖整个 schema；支持多语句执行、停止查询与历史记录。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/></svg></div>
+        <h3>顺手的结构面板</h3>
+        <p>右侧随时查看字段类型、可空、默认值、主键、注释，以及索引、外键与可复制的 DDL。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12h18"/></svg></div>
+        <h3>深色模式与命令面板</h3>
+        <p>浅色 / 深色 / 跟随系统三档主题；⌘K 命令面板把刷新、导出、关标签等操作送到键盘指尖。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 界面预览 ===== -->
+<section id="showcase" style="padding-top: 0;">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Showcase</div>
+      <h2>几个最常用的瞬间</h2>
+      <p>从打开一张表，到批量删除、新增行、写查询——每一步都把将要发生的事情讲清楚。</p>
+    </div>
+
+    <div class="showcase">
+      <div class="show-row reveal">
+        <div class="show-media"><img src="screenshots/overview.png" alt="浏览表数据与字段结构" /></div>
+        <div class="show-text">
+          <div class="num">01 / 浏览数据</div>
+          <h3>打开一张表，先看清它长什么样</h3>
+          <p>选中表名数据立刻铺开；右侧字段面板给出每一列的类型、默认值和注释，切到索引、DDL 可直接复制建表语句。服务端分页、列头排序、单元格双击编辑，NULL 用斜体标出，不与空字符串混淆。</p>
+        </div>
+      </div>
+
+      <div class="show-row reveal">
+        <div class="show-media"><img src="screenshots/bulk-delete.png" alt="勾选多行后的批量删除与语句预览" /></div>
+        <div class="show-text">
+          <div class="num">02 / 安全删除</div>
+          <h3>批量删行：勾选、看语句、一次执行</h3>
+          <p>表头一键全选本页，勾中行以粉底加左侧强调条标出；工具条出现「删除选中（N）」。点下先看到即将执行的 DELETE 语句，确认后才真正落库。删除前整行已拍成 INSERT 快照，可一键撤销。</p>
+        </div>
+      </div>
+
+      <div class="show-row reveal">
+        <div class="show-media"><img src="screenshots/insert.png" alt="新增一行：字段表单与实时 SQL 预览" /></div>
+        <div class="show-text">
+          <div class="num">03 / 新增记录</div>
+          <h3>新增一行：留空就交给数据库</h3>
+          <p>按字段元数据生成表单，留空的列不会拼进 SQL：自增走序列、有默认值走默认值、可空的给 NULL。输入时实时预览将要执行的 INSERT，不用先背语法。</p>
+        </div>
+      </div>
+
+      <div class="show-row reveal">
+        <div class="show-media"><img src="screenshots/sql.png" alt="SQL 编辑器与整库补全" /></div>
+        <div class="show-text">
+          <div class="num">04 / SQL 编辑器</div>
+          <h3>方言感知的查询与补全</h3>
+          <p>按连接类型切换方言，补全覆盖整个 schema；⌘↵（Windows 为 Ctrl+Enter）执行。一次可贴多条语句，按顶层分号拆分，字符串、注释与 $$ 内的分号不会被误切，遇错即停并回滚。</p>
+        </div>
+      </div>
+
+      <div class="show-row reveal">
+        <div class="show-media"><img src="screenshots/dark.png" alt="深色主题下的数据网格" /></div>
+        <div class="show-text">
+          <div class="num">05 / 主题</div>
+          <h3>深色模式，不是简单反色</h3>
+          <p>所有颜色收在设计令牌里，深色只换一套变量：底色压到深灰，选中行变成暗红底加橙字，编辑器跟着一起切。浅色、深色、跟随系统三档，随时切换。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 数据库支持 ===== -->
+<section id="databases" style="padding-top: 0;">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Databases</div>
+      <h2>连接你在用的数据库</h2>
+      <p>浏览、编辑、SQL、导出与元数据查看，三类数据库共用一致的交互。</p>
+    </div>
+    <div class="db-grid">
+      <div class="db-card reveal">
+        <div class="top">
+          <div class="logo-db" style="background: rgba(58,130,216,.14); color: var(--blue);">M</div>
+          <h3>MySQL</h3>
+        </div>
+        <p>连接测试、库列表、表 / 视图 / 函数分组、字段元数据、分页排序筛选、索引外键 DDL、单元格编辑与 CSV 导出。</p>
+        <div class="tag">实连验证 · MySQL 9.7.1</div>
+      </div>
+      <div class="db-card reveal">
+        <div class="top">
+          <div class="logo-db" style="background: rgba(196,64,43,.14); color: var(--accent-2);">P</div>
+          <h3>PostgreSQL</h3>
+        </div>
+        <p>schema 层级浏览、字段与索引元数据、编辑与撤销、多语句执行；DDL 由元数据拼装生成，停止查询走 pg_cancel_backend。</p>
+        <div class="tag">实连验证 · PostgreSQL 18.4</div>
+      </div>
+      <div class="db-card reveal">
+        <div class="top">
+          <div class="logo-db" style="background: rgba(91,168,91,.14); color: var(--green);">S</div>
+          <h3>SQLite</h3>
+        </div>
+        <p>按文件打开，表 / 视图 / 函数分组、字段元数据、分页排序筛选、编辑新增删除与 CSV 导出；停止查询在 SQLite 上不支持，会如实提示。</p>
+        <div class="tag">内建单测库覆盖</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 技术栈 ===== -->
+<section id="stack" style="padding-top: 0;">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Stack</div>
+      <h2>工程上的取舍</h2>
+      <p>桌面壳用 Rust，前端轻量自研，不引入重型组件库；状态、编辑器、菜单与弹窗都按需自己实现。</p>
+    </div>
+    <div class="stack reveal">
+      <span class="label">技术栈</span>
+      <span class="chip">Tauri 2</span>
+      <span class="chip">Rust</span>
+      <span class="chip">React 18</span>
+      <span class="chip">TypeScript</span>
+      <span class="chip">sqlx 0.8</span>
+      <span class="chip">Zustand</span>
+      <span class="chip">CodeMirror 6</span>
+      <span class="chip">Webpack 5</span>
+      <span class="chip">CSS Modules + 设计令牌</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 下载 CTA ===== -->
+<section class="download" id="download">
+  <div class="wrap">
+    <div class="box reveal">
+      <h2>开始使用 SQLL</h2>
+      <p>安装包在 GitHub Releases 提供，支持 macOS、Windows 与 Linux。下载对应平台的版本即可安装运行。</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/LL-Store/SQLL/releases" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          前往 Releases 下载
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/LL-Store/SQLL" target="_blank" rel="noopener">GitHub 仓库</a>
+      </div>
+      <div class="note">MIT License · 未签名安装包在其他机器首次运行时需手动放行</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 页脚 ===== -->
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="#top"><img src="assets/favicon.png" alt="" style="width:22px;height:22px;border-radius:5px;" /> SQLL</a>
+    <div class="links">
+      <a href="https://github.com/LL-Store/SQLL" target="_blank" rel="noopener">仓库</a>
+      <a href="https://github.com/LL-Store/SQLL/issues" target="_blank" rel="noopener">Issue</a>
+      <a href="https://github.com/LL-Store/SQLL/releases" target="_blank" rel="noopener">Releases</a>
+    </div>
+    <div class="copy">© 2026 LL-Store · MIT License</div>
+  </div>
+</footer>
+
+<script>
+  // 滚动入场：IntersectionObserver，尊重 reduced motion
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function (el) { el.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add('in');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    els.forEach(function (el) { io.observe(el); });
+  })();
+</script>
+</body>
+</html>
