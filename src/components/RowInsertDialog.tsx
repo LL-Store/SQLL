@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '@/services/ipc';
+import { api, errMessage } from '@/services/ipc';
 import type { ColumnMeta, NodeRef, KeyValue } from '@/types';
 import s from './RowInsertDialog.module.css';
 
@@ -77,7 +77,7 @@ export function RowInsertDialog({
         })
         .catch((e) => {
           if (!alive) return;
-          setPreviewError((e as Error).message);
+          setPreviewError(errMessage(e));
         });
     }, 220);
     return () => {
@@ -93,7 +93,7 @@ export function RowInsertDialog({
       const r = await api.insertApply(connId, node, payload);
       onDone(r.sql, r.applied ?? 0);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errMessage(e));
     } finally {
       setApplying(false);
     }

@@ -26,6 +26,18 @@ export interface ConnectionConfig {
   readOnly?: boolean | null;
   production?: boolean | null;
   filePath?: string | null;
+  /** 是否启用 SSH 隧道 */
+  sshEnabled?: boolean | null;
+  /** 跳板机主机 */
+  sshHost?: string | null;
+  /** 跳板机端口（默认 22） */
+  sshPort?: number;
+  /** SSH 登录用户名 */
+  sshUser?: string | null;
+  /** 认证方式：password | publickey */
+  sshAuth?: 'password' | 'publickey' | null;
+  /** 私钥文件路径（publickey 方式，留空读 ~/.ssh/id_rsa） */
+  sshKeyPath?: string | null;
 }
 
 export const DB_META: Record<DbKind, { label: string; defaultPort: number; color: string }> = {
@@ -163,4 +175,19 @@ export interface DeleteResult {
 export interface SchemaTable {
   name: string;
   columns: string[];
+}
+
+/** 新增表时的一列定义 */
+export interface NewColumn {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  primaryKey: boolean;
+  comment?: string | null;
+}
+
+/** 结构操作（建表 / 删表 / 清表 / 批量）执行结果 */
+export interface StructOpResult {
+  sql: string;
+  applied?: number | null;
 }

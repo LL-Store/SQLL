@@ -6,7 +6,7 @@
 import { useEffect } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { APP_REPOSITORY, APP_VERSION } from '@/types';
-import { inTauri } from '@/services/ipc';
+import { inTauri, errMessage } from '@/services/ipc';
 import { useAppStore } from '@/store';
 import s from './SettingsDialog.module.css';
 
@@ -39,7 +39,7 @@ export function SettingsDialog() {
     try {
       await openUrl(APP_REPOSITORY);
     } catch (e) {
-      useAppStore.getState().notify(`打开失败：${(e as Error).message}`);
+      useAppStore.getState().notify(`打开失败：${errMessage(e)}`);
     }
   };
 

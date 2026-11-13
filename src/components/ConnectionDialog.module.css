@@ -3,14 +3,18 @@
   inset: 0;
   background: rgba(23, 27, 34, 0.36);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding-top: 6vh;
+  padding: 16px;
   z-index: 30;
 }
 
 .modal {
   width: 536px;
+  max-width: 100%;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   border-radius: 8px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.12);
@@ -30,6 +34,7 @@
 }
 
 .head {
+  flex: 0 0 auto;
   height: 46px;
   display: flex;
   align-items: center;
@@ -76,6 +81,9 @@
 
 .body {
   padding: 14px 16px 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .seg {
@@ -168,7 +176,8 @@
   color: var(--muted-2);
 }
 
-.sslBox {
+.sslBox,
+.sshBox {
   margin-bottom: 12px;
   padding: 10px 12px 2px;
   background: var(--panel-2);
@@ -268,6 +277,7 @@
 }
 
 .foot {
+  flex: 0 0 auto;
   height: 56px;
   display: flex;
   align-items: center;
@@ -350,5 +360,5 @@
 .testErr {
   color: var(--danger);
   background: var(--accent-soft);
-  border: 1px solid #f6d5cf;
+  border: 1px solid var(--accent-weak);
 }

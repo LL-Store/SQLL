@@ -37,6 +37,26 @@ pub struct ConnectionConfig {
     pub file_path: Option<String>,
     #[serde(default)]
     pub has_password: bool,
+
+    /* ---- SSH 隧道（可选）：开启后先连跳板机，再由跳板机转发到数据库 ---- */
+    /// 是否启用 SSH 隧道
+    #[serde(default)]
+    pub ssh_enabled: bool,
+    /// 跳板机主机
+    #[serde(default)]
+    pub ssh_host: Option<String>,
+    /// 跳板机端口（默认 22）
+    #[serde(default)]
+    pub ssh_port: u16,
+    /// SSH 登录用户名
+    #[serde(default)]
+    pub ssh_user: Option<String>,
+    /// 认证方式：password | publickey
+    #[serde(default)]
+    pub ssh_auth: String,
+    /// 私钥文件路径（publickey 方式，可选；留空则读 ~/.ssh/id_rsa）
+    #[serde(default)]
+    pub ssh_key_path: Option<String>,
 }
 
 /// 「测试连接」的结果：服务端版本 + 握手耗时。
@@ -145,6 +165,31 @@ pub struct DeleteResult {
 pub struct SchemaTable {
     pub name: String,
     pub columns: Vec<String>,
+}
+
+/// 新增表时的一列定义（前端表单收集后回传）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewColumn {
+    pub name: String,
+    pub data_type: String,
+    /// 是否允许 NULL
+    pub nullable: bool,
+    /// 是否主键
+    pub primary_key: bool,
+    /// 列注释（MySQL 支持，其余方言忽略）
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+/// 结构操作（建表 / 删表 / 清表 / 批量删表 / 批量清表）的执行结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructOpResult {
+    /// 实际执行的 SQL（单条或多语句），用于确认弹窗回显与留痕
+    pub sql: String,
+    /// 受影响对象 / 行数的粗略统计；DDL 为 None
+    pub applied: Option<u64>,
 }
 
 /// 更新 / 新增的通用结果：预览时 `applied` 为空，执行后有值。

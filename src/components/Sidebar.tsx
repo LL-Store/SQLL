@@ -49,6 +49,7 @@ export function Sidebar() {
     e.stopPropagation();
     setMenu(null);
     const conn = st.connections.find((c) => c.id === connId);
+    const readOnly = !!conn?.readOnly;
     const items: MenuItem[] = [];
 
     if (node.kind === 'server') {
@@ -70,7 +71,7 @@ export function Sidebar() {
           },
         });
       }
-    } else if (node.kind === 'table' || node.kind === 'view') {
+    } else if (node.kind === 'table') {
       items.push({
         label: '打开数据',
         onClick: () => {
@@ -85,19 +86,79 @@ export function Sidebar() {
         },
       });
       items.push({ label: '复制名称', onClick: () => void copyName(node.label) });
-      if (node.kind === 'view') {
-        items.push({ label: '查看定义', onClick: () => void st.openObject(connId, node) });
+      items.push({
+        label: '级联关系',
+        hint: '外键',
+        onClick: () => {
+          st.setInspectorSection('fks');
+          void st.openTable({
+            key: node.id,
+            connId,
+            connName: conn?.name ?? '',
+            color,
+            node: node.node,
+            title: node.label,
+          });
+        },
+      });
+      if (!readOnly) {
+        items.push({
+          label: '清空表数据',
+          danger: true,
+          onClick: () => void st.requestStructConfirm(connId, node.node, 'truncate-table'),
+        });
+        items.push({
+          label: '删除当前表',
+          danger: true,
+          onClick: () => void st.requestStructConfirm(connId, node.node, 'drop-table'),
+        });
       }
       items.push({ label: '重新加载', onClick: () => void st.reloadNode(connId, node) });
+    } else if (node.kind === 'view') {
+      items.push({
+        label: '打开数据',
+        onClick: () => {
+          void st.openTable({
+            key: node.id,
+            connId,
+            connName: conn?.name ?? '',
+            color,
+            node: node.node,
+            title: node.label,
+          });
+        },
+      });
+      items.push({ label: '复制名称', onClick: () => void copyName(node.label) });
+      items.push({ label: '查看定义', onClick: () => void st.openObject(connId, node) });
+      items.push({ label: '重新加载', onClick: () => void st.reloadNode(connId, node) });
     } else {
+      // database / schema / group：作用域级操作（新增表 / 清空所有表 / 删除所有表）
+      const scopeNode = node.node;
+      const scopeLabel = conn?.name ?? node.label;
+      const isTableScope =
+        node.kind === 'database' || node.kind === 'schema' || (node.kind === 'group' && node.node.group === 'table');
+
       if (node.kind === 'function' || node.kind === 'procedure' || node.kind === 'trigger') {
         items.push({ label: '查看定义', onClick: () => void st.openObject(connId, node) });
       }
-      items.push({ label: '重新加载', onClick: () => void st.reloadNode(connId, node) });
-      if (node.kind === 'group') {
-        items.push({ label: '复制名称', onClick: () => void copyName(node.label) });
+      if (!readOnly && isTableScope) {
+        items.push({
+          label: '新增表',
+          onClick: () => st.openTableCreate(connId, scopeNode, scopeLabel),
+        });
+        items.push({
+          label: '清空所有表数据',
+          danger: true,
+          onClick: () => void st.requestStructConfirm(connId, scopeNode, 'truncate-all'),
+        });
+        items.push({
+          label: '删除所有表',
+          danger: true,
+          onClick: () => void st.requestStructConfirm(connId, scopeNode, 'drop-all'),
+        });
       }
-      if (node.kind === 'database' || node.kind === 'schema') {
+      items.push({ label: '重新加载', onClick: () => void st.reloadNode(connId, node) });
+      if (node.kind === 'group' || node.kind === 'database' || node.kind === 'schema') {
         items.push({ label: '复制名称', onClick: () => void copyName(node.label) });
       }
     }

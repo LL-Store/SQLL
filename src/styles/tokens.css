@@ -33,6 +33,9 @@
   --warn-bg: #fff8e6;
   --warn-line: #f2e2b4;
   --warn-text: #8a6a1f;
+  /* 空状态径向渐变：中心略亮，边缘退到背景色 */
+  --empty-glow: #fefbfa;
+  --empty-edge: #ffffff;
 
   /* ---- 尺寸 ---- */
   --header-h: 38px;
@@ -79,6 +82,8 @@
   --warn-bg: #2c2416;
   --warn-line: #4a3d21;
   --warn-text: #d8b567;
+  --empty-glow: #1c1f25;
+  --empty-edge: #14161a;
   color-scheme: dark;
 }
 

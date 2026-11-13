@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { api } from '@/services/ipc';
+import { api, errMessage } from '@/services/ipc';
 import { useAppStore } from '@/store';
 import type { DdlResult, ForeignKeyMeta, IndexMeta } from '@/types';
 import s from './Inspector.module.css';
@@ -21,11 +21,13 @@ const SECTIONS: { key: Section; label: string }[] = [
 export function Inspector() {
   const st = useAppStore();
   const active = st.tabs.find((t) => t.key === st.activeKey) ?? null;
-  const [section, setSection] = useState<Section>('columns');
+  const section = st.inspectorSection;
+  const setSection = st.setInspectorSection;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [indexes, setIndexes] = useState<IndexMeta[]>([]);
   const [fks, setFks] = useState<ForeignKeyMeta[]>([]);
+  const [referencedBy, setReferencedBy] = useState<ForeignKeyMeta[]>([]);
   const [ddl, setDdl] = useState<DdlResult | null>(null);
 
   useEffect(() => {
@@ -34,6 +36,13 @@ export function Inspector() {
     let ignore = false;
     setLoading(true);
     setError(null);
+    // 切换对象 / 分段时先清空对应旧数据，避免上一张表的内容短暂残留
+    if (section === 'indexes') setIndexes([]);
+    if (section === 'fks') {
+      setFks([]);
+      setReferencedBy([]);
+    }
+    if (section === 'ddl') setDdl(null);
     const connId = active.connId;
     const node = active.node;
     const task =
@@ -42,15 +51,20 @@ export function Inspector() {
             if (!ignore) setIndexes(v);
           })
         : section === 'fks'
-          ? api.foreignKeys(connId, node).then((v) => {
-              if (!ignore) setFks(v);
-            })
+          ? Promise.all([
+              api.foreignKeys(connId, node).then((v) => {
+                if (!ignore) setFks(v);
+              }),
+              api.referencedBy(connId, node).then((v) => {
+                if (!ignore) setReferencedBy(v);
+              }),
+            ])
           : api.ddl(connId, node).then((v) => {
               if (!ignore) setDdl(v);
             });
     task
-      .catch((e: Error) => {
-        if (!ignore) setError(e.message);
+      .catch((e: unknown) => {
+        if (!ignore) setError(errMessage(e));
       })
       .finally(() => {
         if (!ignore) setLoading(false);
@@ -136,23 +150,45 @@ export function Inspector() {
         ) : null}
 
         {section === 'fks' && !loading ? (
-          fks.length === 0 ? (
-            <p className={s.hint}>这张表没有外键</p>
-          ) : (
-            <div className={s.list}>
-              {fks.map((f) => (
-                <div key={f.name} className={s.item}>
-                  <div className={s.itemTop}>
-                    <span className={s.itemName}>{f.name}</span>
+          <>
+            <div className={s.groupLabel}>本表引用</div>
+            {fks.length === 0 ? (
+              <p className={s.hint}>没有引用其他表的外键</p>
+            ) : (
+              <div className={s.list}>
+                {fks.map((f) => (
+                  <div key={f.name} className={s.item}>
+                    <div className={s.itemTop}>
+                      <span className={s.itemName}>{f.name}</span>
+                    </div>
+                    <div className={s.itemSub}>
+                      {f.columns.join(', ')} → {f.refTable}({f.refColumns.join(', ')})
+                    </div>
+                    {f.onDelete ? <div className={s.itemSub}>ON DELETE {f.onDelete}</div> : null}
                   </div>
-                  <div className={s.itemSub}>
-                    {f.columns.join(', ')} → {f.refTable}({f.refColumns.join(', ')})
+                ))}
+              </div>
+            )}
+
+            <div className={s.groupLabel}>被其他表引用</div>
+            {referencedBy.length === 0 ? (
+              <p className={s.hint}>没有表引用本表</p>
+            ) : (
+              <div className={s.list}>
+                {referencedBy.map((f) => (
+                  <div key={f.name} className={s.item}>
+                    <div className={s.itemTop}>
+                      <span className={s.itemName}>{f.name}</span>
+                    </div>
+                    <div className={s.itemSub}>
+                      {f.refTable}({f.columns.join(', ')}) → 本表 {f.refColumns.join(', ')}
+                    </div>
+                    {f.onDelete ? <div className={s.itemSub}>ON DELETE {f.onDelete}</div> : null}
                   </div>
-                  {f.onDelete ? <div className={s.itemSub}>ON DELETE {f.onDelete}</div> : null}
-                </div>
-              ))}
-            </div>
-          )
+                ))}
+              </div>
+            )}
+          </>
         ) : null}
 
         {section === 'ddl' && !loading && ddl ? (

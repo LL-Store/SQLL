@@ -9,13 +9,63 @@
  */
 
 import { create } from 'zustand';
-import { api, inTauri } from '@/services/ipc';
+import { api, errMessage, inTauri } from '@/services/ipc';
 import type { ColumnMeta, ConnectionConfig, NodeRef, ResultSet, SqlResult, TreeNode } from '@/types';
 
 interface NodeState {
   children: TreeNode[];
   loading: boolean;
   error: string | null;
+}
+
+/**
+ * 推导某结构树节点的父级 NodeRef，用于删表 / 批量操作后逐级向上刷新计数。
+ * 层级：MySQL/SQLite  server→database→group→table；PG  server→database→schema→group→table。
+ * 已到顶层（server/database）时返回 null。
+ */
+function parentOf(node: NodeRef, kind: string): NodeRef | null {
+  switch (node.kind) {
+    case 'table':
+    case 'view':
+    case 'function':
+    case 'procedure':
+    case 'trigger':
+      return {
+        kind: 'group',
+        database: node.database,
+        schema: node.schema,
+        name: null,
+        group: node.group ?? node.kind,
+      };
+    case 'group':
+      // PG 的分组挂在 schema 下；其余挂在 database 下。
+      if (kind === 'postgres') {
+        return {
+          kind: 'schema',
+          database: node.database,
+          schema: node.schema,
+          name: null,
+          group: null,
+        };
+      }
+      return {
+        kind: 'database',
+        database: node.database,
+        schema: null,
+        name: null,
+        group: null,
+      };
+    case 'schema':
+      return {
+        kind: 'database',
+        database: node.database,
+        schema: null,
+        name: null,
+        group: null,
+      };
+    default:
+      return null;
+  }
 }
 
 export interface TableTab {
@@ -59,6 +109,24 @@ interface AppState {
 
   /** 视图 / 函数 / 存储过程 / 触发器的定义弹窗 */
   objectInfo: { title: string; kind: string; sql: string; loading: boolean; error: string | null } | null;
+  /** 右侧 Inspector 当前分段；右键「级联关系」会切到外键段 */
+  inspectorSection: 'columns' | 'indexes' | 'fks' | 'ddl';
+  setInspectorSection: (section: 'columns' | 'indexes' | 'fks' | 'ddl') => void;
+
+  /** 「新增表」弹窗上下文：定位到目标库 / schema */
+  tableCreate: { connId: string; node: NodeRef; scopeLabel: string } | null;
+  /** 危险结构操作（删表 / 清表 / 批量删表 / 批量清表）确认弹窗上下文 */
+  structConfirm: {
+    connId: string;
+    node: NodeRef;
+    kind: 'drop-table' | 'truncate-table' | 'drop-all' | 'truncate-all';
+    title: string;
+    subtitle: string;
+    hint: string;
+    sql: string;
+    tables: string[];
+    applying: boolean;
+  } | null;
 
   nodes: Record<string, NodeState>;
   expanded: Record<string, boolean>;
@@ -70,7 +138,7 @@ interface AppState {
   boot: () => Promise<void>;
   openDialog: (conn?: ConnectionConfig) => void;
   closeDialog: () => void;
-  saveConnection: (conn: ConnectionConfig, password?: string) => Promise<void>;
+  saveConnection: (conn: ConnectionConfig, password?: string, sshPassword?: string) => Promise<void>;
   removeConnection: (id: string) => Promise<void>;
   notify: (message: string) => void;
   setUndo: (undo: { id: string; label: string } | null) => void;
@@ -96,6 +164,16 @@ interface AppState {
   openSettings: () => void;
   openObject: (connId: string, node: TreeNode) => Promise<void>;
   closeObject: () => void;
+  openTableCreate: (connId: string, node: NodeRef, scopeLabel: string) => void;
+  closeTableCreate: () => void;
+  reloadScope: (connId: string, node: NodeRef) => Promise<void>;
+  requestStructConfirm: (
+    connId: string,
+    node: NodeRef,
+    kind: 'drop-table' | 'truncate-table' | 'drop-all' | 'truncate-all',
+  ) => Promise<void>;
+  closeStructConfirm: () => void;
+  runStructConfirm: () => Promise<void>;
   closeSettings: () => void;
   saveSettings: (patch: Partial<Settings>) => void;
   closeTab: (key: string) => void;
@@ -188,7 +266,7 @@ export const useAppStore = create<AppState>((set, get) => {
       set((st) => ({
         nodes: {
           ...st.nodes,
-          [node.id]: { children: [], loading: false, error: (e as Error).message },
+          [node.id]: { children: [], loading: false, error: errMessage(e) },
         },
       }));
     }
@@ -208,7 +286,7 @@ export const useAppStore = create<AppState>((set, get) => {
       );
       patchTab(tab.key, { result, gridLoading: false });
     } catch (e) {
-      patchTab(tab.key, { gridLoading: false, gridError: (e as Error).message });
+      patchTab(tab.key, { gridLoading: false, gridError: errMessage(e) });
     }
   };
 
@@ -223,6 +301,9 @@ export const useAppStore = create<AppState>((set, get) => {
     settings: loadSettings(),
     settingsOpen: false,
     objectInfo: null,
+    inspectorSection: 'columns',
+    tableCreate: null,
+    structConfirm: null,
     nodes: {},
     expanded: {},
     selectedId: null,
@@ -236,16 +317,16 @@ export const useAppStore = create<AppState>((set, get) => {
         const list = await api.listConnections();
         set({ connections: list ?? [] });
       } catch (e) {
-        set({ toast: (e as Error).message });
+        set({ toast: errMessage(e) });
       }
     },
 
     openDialog: (conn) => set({ dialogOpen: true, editing: conn ?? null }),
     closeDialog: () => set({ dialogOpen: false, editing: null }),
 
-    saveConnection: async (conn, password) => {
+    saveConnection: async (conn, password, sshPassword) => {
       try {
-        const saved = await api.saveConnection(conn, password);
+        const saved = await api.saveConnection(conn, password, sshPassword);
         const list = get().connections;
         const exists = list.some((c) => c.id === saved.id);
         set({
@@ -255,7 +336,7 @@ export const useAppStore = create<AppState>((set, get) => {
           toast: exists ? '连接已更新' : `已添加连接：${saved.name}`,
         });
       } catch (e) {
-        set({ toast: `保存失败：${(e as Error).message}` });
+        set({ toast: `保存失败：${errMessage(e)}` });
       }
     },
 
@@ -268,7 +349,7 @@ export const useAppStore = create<AppState>((set, get) => {
           toast: '连接已删除',
         }));
       } catch (e) {
-        set({ toast: `删除失败：${(e as Error).message}` });
+        set({ toast: `删除失败：${errMessage(e)}` });
       }
     },
 
@@ -283,7 +364,7 @@ export const useAppStore = create<AppState>((set, get) => {
         set({ undo: null, toast: `已恢复 ${n} 行` });
         await get().reloadActive();
       } catch (e) {
-        set({ undo: null, toast: `撤销失败：${(e as Error).message}` });
+        set({ undo: null, toast: `撤销失败：${errMessage(e)}` });
       }
     },
     dismissToast: () => set({ toast: null }),
@@ -421,7 +502,7 @@ export const useAppStore = create<AppState>((set, get) => {
           await fetchRows({ ...tab, page: 0 }, 0);
         }
       } catch (e) {
-        const msg = (e as Error).message;
+        const msg = errMessage(e);
         patchTab(tab.key, {
           sqlRunning: false,
           sqlError: msg === '查询已取消' ? null : msg,
@@ -436,7 +517,7 @@ export const useAppStore = create<AppState>((set, get) => {
       try {
         await api.cancelSql(tab.connId, tab.node.database ?? null);
       } catch (e) {
-        set({ toast: (e as Error).message });
+        set({ toast: errMessage(e) });
       }
     },
 
@@ -453,7 +534,7 @@ export const useAppStore = create<AppState>((set, get) => {
         const r = await api.exportCsv(tab.connId, tab.node, 100000);
         set({ toast: `已导出 ${r.rows} 行到 ${r.path}` });
       } catch (e) {
-        set({ toast: `导出失败：${(e as Error).message}` });
+        set({ toast: `导出失败：${errMessage(e)}` });
       }
     },
 
@@ -478,13 +559,155 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e) {
         set((s) =>
           s.objectInfo
-            ? { objectInfo: { ...s.objectInfo, loading: false, error: (e as Error).message } }
+            ? { objectInfo: { ...s.objectInfo, loading: false, error: errMessage(e) } }
             : {},
         );
       }
     },
 
     closeObject: () => set({ objectInfo: null }),
+    setInspectorSection: (section) => set({ inspectorSection: section }),
+
+    openTableCreate: (connId, node, scopeLabel) => set({ tableCreate: { connId, node, scopeLabel } }),
+    closeTableCreate: () => set({ tableCreate: null }),
+
+    requestStructConfirm: async (connId, node, kind) => {
+      const conn = get().connections.find((c) => c.id === connId);
+      const scopeLabel = conn?.name ?? node.name ?? '';
+      let title = '';
+      let subtitle = scopeLabel;
+      let hint = '';
+      let sql = '';
+      let tables: string[] = [];
+      try {
+        if (kind === 'drop-table' || kind === 'truncate-table') {
+          // 单表：预览语句由后端按方言生成（不执行）
+          const r =
+            kind === 'drop-table'
+              ? await api.dropTablePreview(connId, node)
+              : await api.truncateTablePreview(connId, node);
+          sql = r.sql;
+          tables = node.name ? [node.name] : [];
+          title =
+            kind === 'drop-table'
+              ? `删除表「${node.name ?? ''}」`
+              : `清空表「${node.name ?? ''}」数据`;
+          hint =
+            kind === 'drop-table'
+              ? '删除后表结构与数据都会丢失，且不可撤销'
+              : '只清空数据，表结构保留；不可撤销';
+        } else {
+          // 批量：后端先列出表名并按方言拼好多条语句（不执行），弹窗整体展示
+          const mode = kind === 'drop-all' ? 'drop' : 'truncate';
+          const r = await api.scopePreview(connId, node, mode);
+          tables = await api.scopeTables(connId, node);
+          if (tables.length === 0) {
+            set({ toast: '当前作用域下没有可操作的表' });
+            return;
+          }
+          sql = r.sql;
+          if (kind === 'drop-all') {
+            title = `删除全部 ${tables.length} 张表`;
+            hint = '删除后这些表的结构与数据都会丢失，且不可撤销';
+          } else {
+            title = `清空全部 ${tables.length} 张表的数据`;
+            hint = '只清空数据，表结构保留；不可撤销';
+          }
+        }
+      } catch (e) {
+        set({ toast: errMessage(e) });
+        return;
+      }
+      set({ structConfirm: { connId, node, kind, title, subtitle, hint, sql, tables, applying: false } });
+    },
+
+    reloadScope: async (connId, node) => {
+      const connKind = get().connections.find((c) => c.id === connId)?.kind ?? 'mysql';
+      // 拼出与后端 node_id 一致的缓存键（4 段：kind|db|schema|name）。
+      // 分组节点第 4 段是 group 类型；其余层级第 4 段是 name。
+      const reloadOne = async (ref: NodeRef) => {
+        // 与后端 node_id/group_node 对齐第 4 段：
+        //   group  → group 类型；database → database 名；schema → schema 名；其余 → name。
+        let fourth = ref.name ?? '';
+        if (ref.kind === 'group') fourth = ref.group ?? '';
+        else if (ref.kind === 'database') fourth = ref.database ?? '';
+        else if (ref.kind === 'schema') fourth = ref.schema ?? '';
+        const id = [ref.kind, ref.database ?? '', ref.schema ?? '', fourth].join('|');
+        const tree: TreeNode = { id, kind: ref.kind, label: '', expandable: true, node: ref };
+        await get().reloadNode(connId, tree);
+      };
+      await reloadOne(node);
+      // 逐级向上重载祖先：分组计数挂在父级 children 里的节点对象上，
+      // 只重载当前层刷不到父级的 count，必须把祖先一并刷新。
+      let cursor = parentOf(node, connKind);
+      while (cursor) {
+        await reloadOne(cursor);
+        cursor = parentOf(cursor, connKind);
+      }
+    },
+
+    closeStructConfirm: () => set({ structConfirm: null }),
+
+    runStructConfirm: async () => {
+      const sc = get().structConfirm;
+      if (!sc || sc.applying) return;
+      set((st) => (st.structConfirm ? { structConfirm: { ...st.structConfirm, applying: true } } : {}));
+      try {
+        if (sc.kind === 'drop-table') await api.dropTable(sc.connId, sc.node);
+        else if (sc.kind === 'truncate-table') await api.truncateTable(sc.connId, sc.node);
+        else if (sc.kind === 'drop-all') await api.scopeDropAll(sc.connId, sc.node);
+        else await api.scopeTruncateAll(sc.connId, sc.node);
+
+        // 删掉被影响的已打开标签：删表 / 删全部表后这些标签的数据已不存在
+        const removedTabs = get().tabs.filter((t) => {
+          if (t.connId !== sc.connId) return false;
+          if (sc.kind === 'drop-table') return t.node.name === sc.node.name;
+          if (sc.kind === 'drop-all' || sc.kind === 'truncate-all') {
+            // 批量清表保留标签；批量删表关闭本连接下所有表标签
+            return sc.kind === 'drop-all';
+          }
+          return false;
+        });
+        const removeKeys = new Set(removedTabs.map((t) => t.key));
+        const rest = get().tabs.filter((t) => !removeKeys.has(t.key));
+        const nextActive = rest.find((t) => t.key === get().activeKey)?.key ?? rest[0]?.key ?? null;
+        set({
+          tabs: rest,
+          activeKey: nextActive,
+          selectedId: nextActive,
+          structConfirm: null,
+        });
+
+        // 刷新结构树：删表后从其父分组开始逐级向上重载；作用域级操作从当前节点向上重载。
+        if (sc.kind === 'drop-table') {
+          const parent: NodeRef = {
+            kind: 'group',
+            database: sc.node.database,
+            schema: sc.node.schema,
+            name: null,
+            group: sc.node.group ?? 'table',
+          };
+          await get().reloadScope(sc.connId, parent);
+        } else {
+          await get().reloadScope(sc.connId, sc.node);
+        }
+        const action =
+          sc.kind === 'drop-table'
+            ? `已删除表「${sc.node.name ?? ''}」`
+            : sc.kind === 'truncate-table'
+              ? `已清空表「${sc.node.name ?? ''}」数据`
+              : sc.kind === 'drop-all'
+                ? `已删除 ${sc.tables.length} 张表`
+                : `已清空 ${sc.tables.length} 张表的数据`;
+        set({ toast: action });
+      } catch (e) {
+        // 失败时保留弹窗，解除执行态，便于用户重试或取消
+        set((st) =>
+          st.structConfirm ? { structConfirm: { ...st.structConfirm, applying: false } } : {},
+        );
+        set({ toast: `操作失败：${errMessage(e)}` });
+      }
+    },
 
     closeSettings: () => set({ settingsOpen: false }),
 

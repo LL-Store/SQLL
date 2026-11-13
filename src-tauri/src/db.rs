@@ -132,6 +132,34 @@ pub async fn connect(
         .map_err(|e| friendly_error(&e.to_string()))
 }
 
+/// 用显式覆盖的 host/port 建池（SSH 隧道场景：改指本地转发端口）。
+pub async fn connect_with_addr(
+    cfg: &ConnectionConfig,
+    password: Option<&str>,
+    database: Option<&str>,
+    host_override: &str,
+    port_override: u16,
+) -> Result<AnyPool, String> {
+    let mut local = cfg.clone();
+    local.host = host_override.to_string();
+    local.port = port_override;
+    connect(&local, password, database).await
+}
+
+/// 生成把 host/port 改指覆盖地址的连接串（MySQL 原生驱动直连场景用）。
+pub fn build_url_with_addr(
+    cfg: &ConnectionConfig,
+    password: Option<&str>,
+    database: Option<&str>,
+    host_override: &str,
+    port_override: u16,
+) -> Result<String, String> {
+    let mut local = cfg.clone();
+    local.host = host_override.to_string();
+    local.port = port_override;
+    build_url(&local, password, database)
+}
+
 /// 把驱动返回的原始错误翻成一句中文：用户看到的是「认证失败」，而不是一段英文堆栈。
 /// 未识别的错误原样返回，避免把有用的细节吞掉。
 fn friendly_error(raw: &str) -> String {
@@ -150,6 +178,12 @@ fn friendly_error(raw: &str) -> String {
     }
     if lower.contains("certificate") || lower.contains("tls") {
         return format!("SSL 握手失败：{raw}");
+    }
+    // MySQL 3730 / PG 23503：表被外键引用，不能直接删除。保留原始细节，便于定位依赖表与约束。
+    if lower.contains("3730") || lower.contains("foreign key constraint") || lower.contains("referenced by") {
+        return format!(
+            "该表被其他表的外键引用，无法直接删除。请先删除或修改引用它的表 / 约束后再试。\n原始错误：{raw}"
+        );
     }
     raw.to_string()
 }
@@ -1370,6 +1404,107 @@ pub async fn foreign_keys(
     Ok(out)
 }
 
+/// 反向外键：哪些表通过外键引用了本表。
+/// 复用 `ForeignKeyMeta`，语义为「引用表 columns → 本表 refTable(refColumns)」。
+pub async fn referenced_by(
+    cfg: &ConnectionConfig,
+    pool: &AnyPool,
+    node: &NodeRef,
+) -> Result<Vec<ForeignKeyMeta>, String> {
+    let table = node.name.clone().unwrap_or_default();
+    let mut out: Vec<ForeignKeyMeta> = Vec::new();
+
+    match cfg.kind.as_str() {
+        "mysql" => {
+            let sql = format!(
+                r#"select k.constraint_name, k.table_name, k.column_name, k.referenced_column_name,
+                          r.delete_rule, r.update_rule
+                     from information_schema.key_column_usage k
+                     left join information_schema.referential_constraints r
+                       on r.constraint_name = k.constraint_name and r.constraint_schema = k.constraint_schema
+                    where k.table_schema = {db} and k.referenced_table_name = {tbl}
+                    order by k.constraint_name, k.ordinal_position"#,
+                db = lit(node.database.as_deref().unwrap_or_default()),
+                tbl = lit(&table)
+            );
+            let rows = sqlx::query(&sql)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| friendly_error(&e.to_string()))?;
+            for r in rows {
+                let name: String = r.try_get(0).unwrap_or_default();
+                let owner: String = r.try_get(1).unwrap_or_default();
+                let col: String = r.try_get(2).unwrap_or_default();
+                let ref_col: String = r.try_get(3).unwrap_or_default();
+                let on_delete: Option<String> = r.try_get(4).ok();
+                let on_update: Option<String> = r.try_get(5).ok();
+                match out.iter_mut().find(|f| f.name == name) {
+                    Some(slot) => {
+                        slot.columns.push(col);
+                        slot.ref_columns.push(ref_col);
+                    }
+                    None => out.push(ForeignKeyMeta {
+                        name,
+                        // 用 owner 表名承载「引用本表的表」，ref_table 仍指向本表
+                        ref_table: owner,
+                        columns: vec![col],
+                        ref_columns: vec![ref_col],
+                        on_delete,
+                        on_update,
+                    }),
+                }
+            }
+        }
+        "postgres" => {
+            let sql = format!(
+                r#"select con.conname::text as name, ca.attname::text as col, fa.attname::text as ref_col,
+                        cl.relname::text as owner_table,
+                        case con.confdeltype when 'c' then 'CASCADE' when 'a' then 'NO ACTION'
+                             when 'r' then 'RESTRICT' when 'd' then 'SET NULL' when 'n' then 'SET DEFAULT' end as on_delete
+                   from pg_constraint con
+                   join pg_class c on c.oid = con.conrelid
+                   join pg_class cl on cl.oid = con.conrelid
+                   join pg_class ref on ref.oid = con.confrelid
+                   join lateral unnest(con.conkey, con.confkey) with ordinality as k(attnum, fattnum, ord) on true
+                   join pg_attribute ca on ca.attrelid = con.conrelid and ca.attnum = k.attnum
+                   join pg_attribute fa on fa.attrelid = con.confrelid and fa.attnum = k.fattnum
+                  where con.contype = 'f' and ref.relname = {tbl} and ref.relnamespace = {schema}::regnamespace
+                  order by name, k.ord"#,
+                tbl = lit(&table),
+                schema = lit(node.schema.as_deref().unwrap_or("public"))
+            );
+            let rows = sqlx::query(&sql)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| friendly_error(&e.to_string()))?;
+            for r in rows {
+                let name: String = r.try_get(0).unwrap_or_default();
+                let col: String = r.try_get(1).unwrap_or_default();
+                let ref_col: String = r.try_get(2).unwrap_or_default();
+                let owner: String = r.try_get(3).unwrap_or_default();
+                let on_delete: Option<String> = r.try_get(4).ok();
+                match out.iter_mut().find(|f| f.name == name) {
+                    Some(slot) => {
+                        slot.columns.push(col);
+                        slot.ref_columns.push(ref_col);
+                    }
+                    None => out.push(ForeignKeyMeta {
+                        name,
+                        ref_table: owner,
+                        columns: vec![col],
+                        ref_columns: vec![ref_col],
+                        on_delete,
+                        on_update: None,
+                    }),
+                }
+            }
+        }
+        // SQLite 元数据只能取本表外键，无法直接反查被引用关系。
+        _ => {}
+    }
+    Ok(out)
+}
+
 pub async fn ddl(
     cfg: &ConnectionConfig,
     pool: &AnyPool,
@@ -1993,6 +2128,12 @@ mod tests {
             production: None,
             file_path: Some(path.to_string()),
             has_password: false,
+            ssh_enabled: false,
+            ssh_host: None,
+            ssh_port: 0,
+            ssh_user: None,
+            ssh_auth: "password".into(),
+            ssh_key_path: None,
         }
     }
 
@@ -2012,6 +2153,12 @@ mod tests {
             production: None,
             file_path: None,
             has_password: false,
+            ssh_enabled: false,
+            ssh_host: None,
+            ssh_port: 0,
+            ssh_user: None,
+            ssh_auth: "password".into(),
+            ssh_key_path: None,
         }
     }
 
@@ -2096,6 +2243,12 @@ mod tests {
             production: None,
             file_path: None,
             has_password: false,
+            ssh_enabled: false,
+            ssh_host: None,
+            ssh_port: 0,
+            ssh_user: None,
+            ssh_auth: "password".into(),
+            ssh_key_path: None,
         }
     }
 
@@ -2107,6 +2260,14 @@ mod tests {
     async fn exec(pool: &AnyPool, sql: &str, allow_write: bool) -> Result<SqlResult, String> {
         let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
         execute_on(&mut conn, sql, allow_write).await
+    }
+
+    #[test]
+    fn friendly_fk_block() {
+        let raw = "error returned from database: 3730 (HY000): Cannot drop table 'account' referenced by a foreign key constraint 'fk_workspace_account' on table 'workspace_data'.";
+        let msg = friendly_error(raw);
+        assert!(msg.contains("外键引用"), "应提示被外键引用：{msg}");
+        assert!(msg.contains("workspace_data"), "应保留原始依赖细节：{msg}");
     }
 
     #[test]
@@ -2459,9 +2620,82 @@ mod tests {
             pool.close().await;
         });
     }
-}
 
-/// MySQL 专用执行路径。
+    #[test]
+    fn sqlite_struct_ops() {
+        let dir = std::env::temp_dir().join(format!("sqll-struct-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("struct.sqlite").to_string_lossy().to_string();
+        rt().block_on(async {
+            let cfg = sqlite_cfg(&path);
+            let pool = connect(&cfg, None, None).await.unwrap();
+            let scope = nref("database", Some("main"), None, None, None);
+
+            // 1. 建表：按列定义拼 CREATE TABLE 并执行
+            let cols = vec![
+                NewColumn { name: "id".into(), data_type: "integer".into(), nullable: false, primary_key: true, comment: None },
+                NewColumn { name: "name".into(), data_type: "text".into(), nullable: true, primary_key: false, comment: None },
+                NewColumn { name: "qty".into(), data_type: "integer".into(), nullable: false, primary_key: false, comment: None },
+            ];
+            let create_sql = create_table_sql(&cfg, &scope, "items", &cols).unwrap();
+            println!("create: {create_sql}");
+            assert!(create_sql.contains("CREATE TABLE \"items\""));
+            assert!(create_sql.contains("\"id\" integer NOT NULL"));
+            assert!(create_sql.contains("PRIMARY KEY (\"id\")"));
+            apply_statements(&pool, &create_sql).await.unwrap();
+
+            // 再建一张表，便于验证批量操作
+            let cols2 = vec![NewColumn { name: "id".into(), data_type: "integer".into(), nullable: false, primary_key: true, comment: None }];
+            let sql2 = create_table_sql(&cfg, &scope, "logs", &cols2).unwrap();
+            apply_statements(&pool, &sql2).await.unwrap();
+
+            sqlx::query("insert into items(name,qty) values('a',1),('b',2)")
+                .execute(&pool).await.unwrap();
+            sqlx::query("insert into logs values(1)").execute(&pool).await.unwrap();
+
+            // 2. 列举作用域表
+            let tables = list_tables(&cfg, &pool, &scope).await.unwrap();
+            assert_eq!(tables, vec!["items".to_string(), "logs".to_string()]);
+
+            let items_ref = nref("table", Some("main"), None, Some("items"), None);
+
+            // 2.5 反向外键：SQLite 不支持反查被引用关系，应返回空集而不报错
+            let referenced = referenced_by(&cfg, &pool, &items_ref).await.unwrap();
+            assert!(referenced.is_empty());
+
+            // 3. 单表清空：SQLite 生成 DELETE，执行后表结构保留、行清空
+            let trunc = truncate_table_sql(&cfg, &items_ref).unwrap();
+            assert!(trunc.starts_with("DELETE FROM"), "SQLite 清空应为 DELETE：{trunc}");
+            apply_statements(&pool, &trunc).await.unwrap();
+            let cnt: i64 = sqlx::query("select count(*) from items").fetch_one(&pool).await.unwrap().try_get(0).unwrap();
+            assert_eq!(cnt, 0);
+
+            // 4. 单表删除
+            let drop = drop_table_sql(&cfg, &items_ref).unwrap();
+            assert_eq!(drop, "DROP TABLE \"items\"");
+            apply_statements(&pool, &drop).await.unwrap();
+            let left = list_tables(&cfg, &pool, &scope).await.unwrap();
+            assert_eq!(left, vec!["logs".to_string()]);
+
+            // 5. 批量：删除全部表
+            let all = list_tables(&cfg, &pool, &scope).await.unwrap();
+            let drop_all = drop_all_sql(&cfg, &scope, &all);
+            println!("drop all: {drop_all}");
+            assert!(drop_all.contains("DROP TABLE \"logs\""));
+            apply_statements(&pool, &drop_all).await.unwrap();
+            assert!(list_tables(&cfg, &pool, &scope).await.unwrap().is_empty());
+
+            // 6. 校验：空表名 / 空列应报错
+            assert!(create_table_sql(&cfg, &scope, "  ", &cols).is_err());
+            let bad = vec![NewColumn { name: "".into(), data_type: "int".into(), nullable: true, primary_key: false, comment: None }];
+            assert!(create_table_sql(&cfg, &scope, "x", &bad).is_err());
+
+            pool.close().await;
+            let _ = std::fs::remove_file(&path);
+        });
+    }
+
+}
 ///
 /// `sqlx::Any` 对 MySQL 的 `TIMESTAMP` / `DATETIME` 没有映射，`SELECT *` 命中这类列会
 /// 在取数阶段直接报 `Any driver does not support MySql type Timestamp`。因此 MySQL 连接
@@ -2605,4 +2839,173 @@ fn cell_mysql(row: &sqlx::mysql::MySqlRow, i: usize) -> CellValue {
         return CellValue::Binary(v.len());
     }
     CellValue::Null
+}
+
+/* ---------------- 结构操作：建表 / 删表 / 清表 ---------------- */
+
+/// 当前作用域（库 / schema）下的全部基表名，用于「删除所有表 / 清空所有表数据」。
+/// 作用域与结构树展开到的层级一致：MySQL 按 database，PG 按 schema，SQLite 按文件。
+pub async fn list_tables(
+    cfg: &ConnectionConfig,
+    pool: &AnyPool,
+    node: &NodeRef,
+) -> Result<Vec<String>, String> {
+    let sql: String = match cfg.kind.as_str() {
+        "mysql" => format!(
+            "select table_name from information_schema.tables \
+             where table_schema={} and table_type='BASE TABLE' order by table_name",
+            lit(node.database.as_deref().unwrap_or_default())
+        ),
+        "postgres" => format!(
+            "select table_name::text from information_schema.tables \
+             where table_schema={} and table_type='BASE TABLE' order by table_name",
+            lit(node.schema.as_deref().unwrap_or("public"))
+        ),
+        _ => "select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name"
+            .to_string(),
+    };
+    texts(pool, &sql).await
+}
+
+/// 把单表名按方言拼成限定名（库.表 / schema.表 / 裸表名）。
+fn qualified_one(cfg: &ConnectionConfig, node: &NodeRef, table: &str) -> String {
+    match cfg.kind.as_str() {
+        "mysql" => format!(
+            "{}.{}",
+            ident("mysql", node.database.as_deref().unwrap_or_default()),
+            ident("mysql", table)
+        ),
+        "postgres" => format!(
+            "{}.{}",
+            ident("postgres", node.schema.as_deref().unwrap_or("public")),
+            ident("postgres", table)
+        ),
+        _ => ident("sqlite", table),
+    }
+}
+
+/// 生成「删除当前表」的 DDL。
+pub fn drop_table_sql(cfg: &ConnectionConfig, node: &NodeRef) -> Result<String, String> {
+    let table = node.name.clone().unwrap_or_default();
+    if table.is_empty() {
+        return Err("缺少表名，无法生成 DROP TABLE".to_string());
+    }
+    Ok(format!("DROP TABLE {}", qualified_one(cfg, node, &table)))
+}
+
+/// 生成「清空当前表数据」的语句：优先 TRUNCATE；SQLite 用 DELETE。
+pub fn truncate_table_sql(cfg: &ConnectionConfig, node: &NodeRef) -> Result<String, String> {
+    let table = node.name.clone().unwrap_or_default();
+    if table.is_empty() {
+        return Err("缺少表名，无法生成清空语句".to_string());
+    }
+    let qualified = qualified_one(cfg, node, &table);
+    Ok(match cfg.kind.as_str() {
+        "sqlite" => format!("DELETE FROM {qualified}"),
+        _ => format!("TRUNCATE TABLE {qualified}"),
+    })
+}
+
+/// 生成「删除作用域内全部表」的多条 DDL，用分号拼接（确认弹窗整体展示，后端逐条执行）。
+pub fn drop_all_sql(cfg: &ConnectionConfig, node: &NodeRef, tables: &[String]) -> String {
+    tables
+        .iter()
+        .map(|t| format!("DROP TABLE {}", qualified_one(cfg, node, t)))
+        .collect::<Vec<_>>()
+        .join(";\n")
+}
+
+/// 生成「清空作用域内全部表数据」的多条语句；SQLite 用 DELETE，其余用 TRUNCATE。
+pub fn truncate_all_sql(cfg: &ConnectionConfig, node: &NodeRef, tables: &[String]) -> String {
+    tables
+        .iter()
+        .map(|t| match cfg.kind.as_str() {
+            "sqlite" => format!("DELETE FROM {}", qualified_one(cfg, node, t)),
+            _ => format!("TRUNCATE TABLE {}", qualified_one(cfg, node, t)),
+        })
+        .collect::<Vec<_>>()
+        .join(";\n")
+}
+
+/// 校验列定义并生成「新增表」的 CREATE TABLE 语句。
+/// 主键在表级声明；列注释只拼到 MySQL；类型文本由用户填写，原样保留。
+pub fn create_table_sql(
+    cfg: &ConnectionConfig,
+    node: &NodeRef,
+    table: &str,
+    columns: &[NewColumn],
+) -> Result<String, String> {
+    let name = table.trim();
+    if name.is_empty() {
+        return Err("请填写表名".to_string());
+    }
+    if columns.is_empty() {
+        return Err("请至少添加一列".to_string());
+    }
+    let mut seen = std::collections::HashSet::new();
+    for col in columns {
+        let cname = col.name.trim();
+        if cname.is_empty() {
+            return Err("存在未填写列名的列".to_string());
+        }
+        if col.data_type.trim().is_empty() {
+            return Err(format!("列 {} 未填写类型", cname));
+        }
+        if !seen.insert(cname.to_lowercase()) {
+            return Err(format!("列名 {} 重复", cname));
+        }
+    }
+
+    let mut col_lines: Vec<String> = Vec::new();
+    let mut pk: Vec<String> = Vec::new();
+    for col in columns {
+        let mut line = format!(
+            "{} {}",
+            ident(&cfg.kind, col.name.trim()),
+            col.data_type.trim()
+        );
+        if !col.nullable {
+            line.push_str(" NOT NULL");
+        }
+        if cfg.kind == "mysql" {
+            if let Some(comment) = col.comment.as_deref().filter(|c| !c.is_empty()) {
+                line.push_str(&format!(" COMMENT {}", lit(comment)));
+            }
+        }
+        col_lines.push(line);
+        if col.primary_key {
+            pk.push(ident(&cfg.kind, col.name.trim()));
+        }
+    }
+    if !pk.is_empty() {
+        col_lines.push(format!("PRIMARY KEY ({})", pk.join(", ")));
+    }
+
+    Ok(format!(
+        "CREATE TABLE {} (\n  {}\n)",
+        qualified_one(cfg, node, name),
+        col_lines.join(",\n  ")
+    ))
+}
+
+/// 在一个事务里依次执行多条已生成的写语句，任一失败即整体回滚；返回累计影响行数。
+/// 语句来自后端按方言拼接（标识符 / 字面量已转义），不直接执行外部文本。
+pub async fn apply_statements(pool: &AnyPool, sql: &str) -> Result<u64, String> {
+    let stmts = split_statements(sql);
+    if stmts.is_empty() {
+        return Err("没有可执行的语句".to_string());
+    }
+    let mut tx = pool.begin().await.map_err(|e| friendly_error(&e.to_string()))?;
+    let mut total: u64 = 0;
+    for (idx, st) in stmts.iter().enumerate() {
+        let res = sqlx::query(st)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                format!("第 {} 条语句执行失败：{}", idx + 1, friendly_error(&e.to_string()))
+            })?;
+        total += res.rows_affected();
+    }
+    tx.commit().await.map_err(|e| friendly_error(&e.to_string()))?;
+    Ok(total)
 }

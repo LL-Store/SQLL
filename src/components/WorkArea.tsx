@@ -14,7 +14,7 @@ import { SqlEditor } from './SqlEditor';
 import { UpdateDialog } from './UpdateDialog';
 import { RowInsertDialog } from './RowInsertDialog';
 import { SqlConfirmDialog } from './SqlConfirmDialog';
-import { api } from '@/services/ipc';
+import { api, errMessage } from '@/services/ipc';
 import { useAppStore } from '@/store';
 import type { Cell, KeyValue, SchemaTable } from '@/types';
 import s from './WorkArea.module.css';
@@ -191,7 +191,7 @@ export function WorkArea() {
       const preview = await api.updatePreview(active.connId, active.node, keys, column, value);
       setUpdate({ sql: preview.sql, keys, column, value, title: active.title });
     } catch (e) {
-      st.notify(`生成 UPDATE 失败：${(e as Error).message}`);
+      st.notify(`生成 UPDATE 失败：${errMessage(e)}`);
     }
   };
 
@@ -210,7 +210,7 @@ export function WorkArea() {
       setUpdate(null);
       await st.reloadActive();
     } catch (e) {
-      st.notify(`更新失败：${(e as Error).message}`);
+      st.notify(`更新失败：${errMessage(e)}`);
     } finally {
       setApplying(false);
     }
@@ -301,7 +301,7 @@ export function WorkArea() {
             api
               .deletePreview(active.connId, active.node, rowKeys(ri))
               .then((r) => setDel({ sql: r.sql, keys: rowKeys(ri) }))
-              .catch((err) => st.notify((err as Error).message));
+              .catch((err) => st.notify(errMessage(err)));
           },
         },
       ],
@@ -319,7 +319,7 @@ export function WorkArea() {
               <p className={s.desc}>
                 添加一个 MySQL、PostgreSQL 或 SQLite 连接，即可浏览库表结构、查看数据、执行 SQL 查询。
               </p>
-              <button className={s.primary} onClick={() => st.openDialog()}>
+              <button className={s.primary} disabled={st.dialogOpen} onClick={() => st.openDialog()}>
                 <PlusIcon color="#fff" size={13} />
                 新建连接
               </button>
@@ -414,7 +414,7 @@ export function WorkArea() {
               api
                 .deleteManyPreview(active.connId, active.node, keys)
                 .then((r) => setMultiDel({ sql: r.sql, rows: keys }))
-                .catch((err) => st.notify((err as Error).message));
+                .catch((err) => st.notify(errMessage(err)));
             }}
           >
             删除选中（{sel.size}）
@@ -692,7 +692,7 @@ export function WorkArea() {
               st.notify(`已删除 ${r.applied ?? 0} 行`);
               void st.reloadActive();
             })
-            .catch((err) => st.notify((err as Error).message))
+            .catch((err) => st.notify(errMessage(err)))
             .finally(() => setApplying(false));
         }}
       />
@@ -717,7 +717,7 @@ export function WorkArea() {
               st.notify(`已删除 ${r.applied ?? 0} 行`);
               void st.reloadActive();
             })
-            .catch((err) => st.notify((err as Error).message))
+            .catch((err) => st.notify(errMessage(err)))
             .finally(() => setApplying(false));
         }}
       />

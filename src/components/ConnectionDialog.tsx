@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import { api } from '@/services/ipc';
+import { api, errMessage } from '@/services/ipc';
 import { DB_META, type ConnectionConfig, type DbKind, type SslMode } from '@/types';
 import { useAppStore } from '@/store';
 import s from './ConnectionDialog.module.css';
@@ -42,6 +42,14 @@ export function ConnectionDialog() {
   const [color, setColor] = useState(COLORS[0]);
   const [readOnly, setReadOnly] = useState(false);
   const [production, setProduction] = useState(false);
+  // SSH 隧道
+  const [sshOn, setSshOn] = useState(false);
+  const [sshHost, setSshHost] = useState('');
+  const [sshPort, setSshPort] = useState('22');
+  const [sshUser, setSshUser] = useState('');
+  const [sshAuth, setSshAuth] = useState<'password' | 'publickey'>('password');
+  const [sshKeyPath, setSshKeyPath] = useState('');
+  const [sshPassword, setSshPassword] = useState('');
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -66,6 +74,13 @@ export function ConnectionDialog() {
       setColor(editing.color || COLORS[0]);
       setReadOnly(!!editing.readOnly);
       setProduction(!!editing.production);
+      setSshOn(!!editing.sshEnabled);
+      setSshHost(editing.sshHost ?? '');
+      setSshPort(String(editing.sshPort || 22));
+      setSshUser(editing.sshUser ?? '');
+      setSshAuth(editing.sshAuth === 'publickey' ? 'publickey' : 'password');
+      setSshKeyPath(editing.sshKeyPath ?? '');
+      setSshPassword('');
     } else {
       setKind('mysql');
       setName('本地 MySQL · dev');
@@ -81,6 +96,13 @@ export function ConnectionDialog() {
       setColor(COLORS[0]);
       setReadOnly(false);
       setProduction(false);
+      setSshOn(false);
+      setSshHost('');
+      setSshPort('22');
+      setSshUser('');
+      setSshAuth('password');
+      setSshKeyPath('');
+      setSshPassword('');
     }
   }, [open, editing]);
 
@@ -102,6 +124,8 @@ export function ConnectionDialog() {
     setTestMsg(null);
   };
 
+  const sshEnabled = kind !== 'sqlite' && sshOn;
+
   const build = (): ConnectionConfig => ({
     id: editing?.id ?? '',
     name: name.trim(),
@@ -117,20 +141,32 @@ export function ConnectionDialog() {
     production,
     filePath: kind === 'sqlite' ? filePath.trim() : null,
     hasPassword: !!editing?.hasPassword || password.length > 0,
+    sshEnabled,
+    sshHost: sshEnabled ? sshHost.trim() || null : null,
+    sshPort: sshEnabled ? Number(sshPort) || 22 : 0,
+    sshUser: sshEnabled ? sshUser.trim() || null : null,
+    sshAuth: sshEnabled ? sshAuth : 'password',
+    sshKeyPath:
+      sshEnabled && sshAuth === 'publickey' && sshKeyPath.trim() ? sshKeyPath.trim() : null,
   });
+
+  const sshValid =
+    !sshEnabled ||
+    (sshHost.trim().length > 0 && Number(sshPort) > 0 && sshUser.trim().length > 0);
 
   const valid =
     name.trim().length > 0 &&
+    sshValid &&
     (kind === 'sqlite' ? filePath.trim().length > 0 : host.trim().length > 0 && Number(port) > 0);
 
   const onTest = async () => {
     setTesting(true);
     setTestMsg(null);
     try {
-      const r = await api.testConnection(build(), password || undefined);
+      const r = await api.testConnection(build(), password || undefined, sshPassword || undefined);
       setTestMsg({ ok: true, text: `连接成功 · ${r.version.slice(0, 48)} · ${r.latencyMs} ms` });
     } catch (e) {
-      setTestMsg({ ok: false, text: (e as Error).message });
+      setTestMsg({ ok: false, text: errMessage(e) });
     } finally {
       setTesting(false);
     }
@@ -138,7 +174,7 @@ export function ConnectionDialog() {
 
   const onSave = async () => {
     setSaving(true);
-    await save(build(), password || undefined);
+    await save(build(), password || undefined, sshPassword || undefined);
     setSaving(false);
   };
 
@@ -238,7 +274,7 @@ export function ConnectionDialog() {
                   className={s.input}
                   type="password"
                   value={password}
-                  placeholder={editing?.hasPassword ? '已保存，留空则不修改' : '••••••••••••'}
+                  placeholder={editing?.hasPassword ? '已保存，留空则不修改' : '请输入密码'}
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
@@ -252,34 +288,133 @@ export function ConnectionDialog() {
                     aria-label="切换 SSL"
                   />
                 </div>
-                <div className={s.row}>
-                  <div className={s.field}>
-                    <label className={s.label}>SSL 模式</label>
-                    <select
-                      className={s.select}
-                      value={sslMode}
-                      disabled={!sslOn}
-                      onChange={(e) => setSslMode(e.target.value as SslMode)}
-                    >
-                      {SSL_MODES.map((m) => (
-                        <option key={m.value} value={m.value}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className={s.field} style={{ flex: 1.4 }}>
-                    <label className={s.label}>CA 证书（可选）</label>
-                    <input
-                      className={s.input}
-                      value={caPath}
-                      disabled={!sslOn}
-                      placeholder="~/certs/ca.pem"
-                      onChange={(e) => setCaPath(e.target.value)}
-                    />
-                  </div>
+                {sslOn ? (
+                  <>
+                    <div className={s.row}>
+                      <div className={s.field}>
+                        <label className={s.label}>SSL 模式</label>
+                        <select
+                          className={s.select}
+                          value={sslMode}
+                          onChange={(e) => setSslMode(e.target.value as SslMode)}
+                        >
+                          {SSL_MODES.map((m) => (
+                            <option key={m.value} value={m.value}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className={s.field} style={{ flex: 1.4 }}>
+                        <label className={s.label}>CA 证书（可选）</label>
+                        <input
+                          className={s.input}
+                          value={caPath}
+                          placeholder="~/certs/ca.pem"
+                          onChange={(e) => setCaPath(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className={s.sslNote}>客户端证书 / 私钥为可选项，留空则仅校验服务端</div>
+                  </>
+                ) : null}
+              </div>
+
+              <div className={s.sshBox}>
+                <div className={s.sslTop}>
+                  SSH 隧道（经跳板机访问数据库）
+                  <button
+                    className={sshOn ? s.switch : `${s.switch} ${s.switchOff}`}
+                    onClick={() => setSshOn((v) => !v)}
+                    aria-label="切换 SSH 隧道"
+                  />
                 </div>
-                <div className={s.sslNote}>客户端证书 / 私钥为可选项，留空则仅校验服务端</div>
+                {sshOn ? (
+                  <>
+                    <div className={s.row}>
+                      <div className={s.field} style={{ flex: 2.2 }}>
+                        <label className={s.label}>跳板机主机</label>
+                        <input
+                          className={s.input}
+                          value={sshHost}
+                          placeholder="如 10.0.0.8"
+                          onChange={(e) => setSshHost(e.target.value)}
+                        />
+                      </div>
+                      <div className={s.field} style={{ flex: 1 }}>
+                        <label className={s.label}>端口</label>
+                        <input
+                          className={s.input}
+                          value={sshPort}
+                          onChange={(e) => setSshPort(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className={s.row}>
+                      <div className={s.field}>
+                        <label className={s.label}>SSH 用户名</label>
+                        <input
+                          className={s.input}
+                          value={sshUser}
+                          onChange={(e) => setSshUser(e.target.value)}
+                        />
+                      </div>
+                      <div className={s.field}>
+                        <label className={s.label}>认证方式</label>
+                        <select
+                          className={s.select}
+                          value={sshAuth}
+                          onChange={(e) => setSshAuth(e.target.value as 'password' | 'publickey')}
+                        >
+                          <option value="password">密码</option>
+                          <option value="publickey">私钥</option>
+                        </select>
+                      </div>
+                    </div>
+                    {sshAuth === 'password' ? (
+                      <div className={s.field}>
+                        <label className={s.label}>SSH 密码（保存在系统钥匙串）</label>
+                        <input
+                          className={s.input}
+                          type="password"
+                          value={sshPassword}
+                          placeholder={editing?.sshEnabled ? '已保存，留空则不修改' : '跳板机登录密码'}
+                          onChange={(e) => setSshPassword(e.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <div className={s.field}>
+                        <label className={s.label}>私钥文件（可选，留空读 ~/.ssh/id_rsa）</label>
+                        <div className={s.fileRow}>
+                          <input
+                            className={s.input}
+                            value={sshKeyPath}
+                            placeholder="~/.ssh/id_rsa"
+                            onChange={(e) => setSshKeyPath(e.target.value)}
+                          />
+                          <button
+                            className={s.pick}
+                            onClick={() => {
+                              void openFileDialog({
+                                multiple: false,
+                                directory: false,
+                                filters: [{ name: '私钥', extensions: ['pem', 'key', 'pub', 'rsa', 'ed25519'] }],
+                              }).then((p: string | string[] | null) => {
+                                if (typeof p === 'string') setSshKeyPath(p);
+                              });
+                            }}
+                            title="选择 SSH 私钥文件"
+                          >
+                            选择…
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div className={s.sslNote}>
+                      连接时先登录跳板机，再由跳板机转发到上面填写的数据库地址
+                    </div>
+                  </>
+                ) : null}
               </div>
             </>
           )}

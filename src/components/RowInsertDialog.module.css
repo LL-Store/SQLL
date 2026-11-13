@@ -5,13 +5,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
   background: rgba(23, 27, 34, 0.38);
 }
 
 .card {
   width: 640px;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 80px);
+  max-width: 100%;
+  max-height: calc(100vh - 32px);
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -22,6 +23,7 @@
 }
 
 .head {
+  flex: 0 0 auto;
   padding: 13px 16px 11px;
   border-bottom: 1px solid var(--line-2);
 }
@@ -50,6 +52,8 @@
 .body {
   padding: 12px 16px;
   overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .fields {
@@ -155,6 +159,7 @@
 }
 
 .foot {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;

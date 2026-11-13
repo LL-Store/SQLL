@@ -17,8 +17,62 @@ import { StatusBar } from './components/StatusBar';
 import { ConnectionDialog } from './components/ConnectionDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ObjectDialog } from './components/ObjectDialog';
+import { CreateTableDialog } from './components/CreateTableDialog';
+import { SqlConfirmDialog } from './components/SqlConfirmDialog';
 import { CommandPalette } from './components/CommandPalette';
 import { useAppStore } from './store';
+
+/** 新增表弹窗：从 store 取上下文，建表成功后关闭并刷新当前作用域树。 */
+function CreateTableHost() {
+  const ctx = useAppStore((s) => s.tableCreate);
+  const close = useAppStore((s) => s.closeTableCreate);
+  const production = useAppStore(
+    (s) => !!s.connections.find((c) => c.id === ctx?.connId)?.production,
+  );
+
+  if (!ctx) return null;
+  return (
+    <CreateTableDialog
+      open
+      connId={ctx.connId}
+      node={ctx.node}
+      scopeLabel={ctx.scopeLabel}
+      production={production}
+      onClose={close}
+      onDone={() => {
+        close();
+        useAppStore.getState().notify('表已创建');
+        void useAppStore.getState().reloadScope(ctx.connId, ctx.node);
+      }}
+    />
+  );
+}
+
+/** 危险结构操作确认弹窗：删表 / 清表 / 批量删表 / 批量清表，先看 SQL 再执行。 */
+function StructConfirmHost() {
+  const sc = useAppStore((s) => s.structConfirm);
+  const close = useAppStore((s) => s.closeStructConfirm);
+  const run = useAppStore((s) => s.runStructConfirm);
+  const production = useAppStore(
+    (s) => !!s.connections.find((c) => c.id === sc?.connId)?.production,
+  );
+
+  if (!sc) return null;
+  return (
+    <SqlConfirmDialog
+      open
+      title={sc.title}
+      subtitle={sc.subtitle}
+      hint={sc.hint}
+      sql={sc.sql}
+      applying={sc.applying}
+      danger
+      production={production}
+      onCancel={close}
+      onConfirm={() => void run()}
+    />
+  );
+}
 
 export function App() {
   const toast = useAppStore((s) => s.toast);
@@ -72,6 +126,8 @@ export function App() {
       <ConnectionDialog />
       <SettingsDialog />
       <ObjectDialog />
+      <CreateTableHost />
+      <StructConfirmHost />
       {undo ? (
         <div className={styles.undoBar} role="status">
           <span>{undo.label}已执行，可撤销</span>

@@ -31,6 +31,8 @@ chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2.5.5"
+# SSH 隧道：libssh2 绑定，走同步 std TcpStream，在独立线程上跑转发任务
+ssh2 = "0.9.7"
 
 # 密码存系统钥匙串：每个平台要用各自的后端，否则在别的系统上编译不过。
 [target.'cfg(target_os = "macos")'.dependencies]

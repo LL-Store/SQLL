@@ -7,12 +7,14 @@
 
 mod db;
 mod model;
+mod ssh_tunnel;
 mod store;
 
 use model::*;
 use sqlx::{Acquire, AnyPool, Connection, Row};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Instant;
 use tauri::{AppHandle, Manager, State};
 
 /// 应用级共享状态：Tauri 启动时注入，命令通过 `State<'_, AppCtx>` 取用。
@@ -20,6 +22,8 @@ pub struct AppCtx {
     configs: Mutex<Vec<ConnectionConfig>>,
     vault: store::Vault,
     pools: Mutex<HashMap<String, AnyPool>>,
+    /// SSH 隧道：conn_id -> 隧道句柄，与连接配置同生命周期
+    tunnels: Mutex<HashMap<String, ssh_tunnel::SshTunnel>>,
     /// 正在执行的查询：pool_key -> (方言, 后端连接 id)，用于取消
     running: Mutex<HashMap<String, (String, i64)>>,
     /// 最近几次删除的快照，用于「撤销删除」（最多保留 5 条）
@@ -55,7 +59,32 @@ fn pool_key(conn_id: &str, database: Option<&str>) -> String {
     format!("{}|{}", conn_id, database.unwrap_or(""))
 }
 
+/// 确保隧道已建立（启用了 SSH 隧道的连接），返回本地转发地址；未启用返回 `None`。
+/// 隧道按连接配置缓存，同一配置下切换数据库复用同一条隧道。
+fn ensure_tunnel(
+    state: &AppCtx,
+    conn_id: &str,
+    cfg: &ConnectionConfig,
+) -> Result<Option<(String, u16)>, String> {
+    if !ssh_tunnel::enabled(cfg) {
+        return Ok(None);
+    }
+    if let Ok(cache) = state.tunnels.lock() {
+        if let Some(t) = cache.get(conn_id) {
+            return Ok(Some(t.local_addr()));
+        }
+    }
+    let ssh_pw = state.vault.get_ssh(conn_id);
+    let tunnel = ssh_tunnel::open(cfg, ssh_pw.as_deref(), &cfg.host, cfg.port)?;
+    let addr = tunnel.local_addr();
+    if let Ok(mut cache) = state.tunnels.lock() {
+        cache.insert(conn_id.to_string(), tunnel);
+    }
+    Ok(Some(addr))
+}
+
 /// 取连接池：命中缓存直接复用，否则读钥匙串密码后新建并写回缓存。
+/// 启用 SSH 隧道时先开本地转发，连接串改指本地端口。
 async fn pool_for(
     state: &AppCtx,
     conn_id: &str,
@@ -69,7 +98,13 @@ async fn pool_for(
         }
     }
     let pw = state.vault.get(conn_id);
-    let pool = db::connect(cfg, pw.as_deref(), database).await?;
+    let tunnel_addr = ensure_tunnel(state, conn_id, cfg)?;
+    let pool = match tunnel_addr {
+        Some((host, port)) => {
+            db::connect_with_addr(cfg, pw.as_deref(), database, &host, port).await?
+        }
+        None => db::connect(cfg, pw.as_deref(), database).await?,
+    };
     if let Ok(mut cache) = state.pools.lock() {
         cache.insert(key, pool.clone());
     }
@@ -91,12 +126,14 @@ fn connection_list(state: State<'_, AppCtx>) -> Result<Vec<ConnectionConfig>, St
 
 /// 新增或更新连接。id 为空时生成 UUID；传了密码就写进钥匙串，
 /// 没传且原本有密码时保持原密码（编辑连接不必每次重输）。
+/// SSH 密码单独存钥匙串；保存后清掉旧连接池与旧隧道，避免沿用过期配置。
 #[tauri::command]
 async fn connection_save(
     app: AppHandle,
     state: State<'_, AppCtx>,
     mut conn: ConnectionConfig,
     password: Option<String>,
+    ssh_password: Option<String>,
 ) -> Result<ConnectionConfig, String> {
     if conn.id.trim().is_empty() {
         conn.id = uuid::Uuid::new_v4().to_string();
@@ -107,6 +144,14 @@ async fn connection_save(
     } else if conn.has_password {
         // 保留原有密码
     }
+    // SSH 密码：开启隧道且填了就保存；关闭隧道时清掉
+    if conn.ssh_enabled {
+        if let Some(ssh_pw) = ssh_password.as_deref().filter(|s| !s.is_empty()) {
+            state.vault.set_ssh(&conn.id, ssh_pw);
+        }
+    } else {
+        state.vault.remove_ssh(&conn.id);
+    }
     {
         let mut list = state.configs.lock().map_err(|e| e.to_string())?;
         match list.iter_mut().find(|c| c.id == conn.id) {
@@ -114,6 +159,27 @@ async fn connection_save(
             None => list.push(conn.clone()),
         }
         store::save(&app, &list)?;
+    }
+    // 配置可能已改：丢弃旧池与旧隧道，下次使用时按新配置重建。
+    // 注意：MutexGuard 不能跨 await 持有（future 要求 Send），先在锁内取出待关闭池，
+    // 释放锁后再逐个关闭。
+    let prefix = format!("{}|", conn.id);
+    let stale: Vec<AnyPool> = {
+        let mut cache = state.pools.lock().map_err(|e| e.to_string())?;
+        let keys: Vec<String> = cache
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        keys.into_iter().filter_map(|k| cache.remove(&k)).collect()
+    };
+    for pool in stale {
+        pool.close().await;
+    }
+    if let Ok(mut tunnels) = state.tunnels.lock() {
+        if let Some(t) = tunnels.remove(&conn.id) {
+            t.close();
+        }
     }
     Ok(conn)
 }
@@ -127,6 +193,12 @@ fn connection_delete(app: AppHandle, state: State<'_, AppCtx>, id: String) -> Re
         store::save(&app, &list)?;
     }
     state.vault.remove(&id);
+    // 关闭并丢弃这条连接的 SSH 隧道
+    if let Ok(mut tunnels) = state.tunnels.lock() {
+        if let Some(t) = tunnels.remove(&id) {
+            t.close();
+        }
+    }
     if let Ok(mut cache) = state.pools.lock() {
         let keys: Vec<String> = cache
             .keys()
@@ -140,11 +212,13 @@ fn connection_delete(app: AppHandle, state: State<'_, AppCtx>, id: String) -> Re
 }
 
 /// 试连接：返回服务端版本与握手耗时，不落配置、不改缓存池。
+/// 启用 SSH 隧道时临时建一条转发，测完即关闭（不写隧道缓存）。
 #[tauri::command]
 async fn connection_test(
     state: State<'_, AppCtx>,
     conn: ConnectionConfig,
     password: Option<String>,
+    ssh_password: Option<String>,
 ) -> Result<TestResult, String> {
     let pw = if password.as_deref().filter(|s| !s.is_empty()).is_some() {
         password
@@ -153,7 +227,40 @@ async fn connection_test(
     } else {
         None
     };
-    db::test(&conn, pw.as_deref()).await
+
+    // 临时隧道：测试结束后关闭，不进入长期缓存
+    let _tunnel = if ssh_tunnel::enabled(&conn) {
+        let cached_ssh_pw = (!conn.id.is_empty())
+            .then(|| state.vault.get_ssh(&conn.id))
+            .flatten();
+        let ssh_pw = ssh_password
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or(cached_ssh_pw.as_deref());
+        Some(ssh_tunnel::open(
+            &conn,
+            ssh_pw,
+            &conn.host,
+            conn.port,
+        )?)
+    } else {
+        None
+    };
+
+    let result = match &_tunnel {
+        Some(t) => {
+            let (host, port) = t.local_addr();
+            let start = Instant::now();
+            let pool = db::connect_with_addr(&conn, pw.as_deref(), None, &host, port).await?;
+            let version = db::server_version(&pool, &conn.kind).await?;
+            let latency = start.elapsed().as_millis();
+            pool.close().await;
+            t.close();
+            TestResult { version, latency_ms: latency }
+        }
+        None => db::test(&conn, pw.as_deref()).await?,
+    };
+    Ok(result)
 }
 
 /// 展开结构树的一层（库 / schema / 表分组 / 表列表）。
@@ -229,7 +336,13 @@ async fn sql_execute(
     // 否则 `SELECT *` 一旦命中这类列就会整条语句报错（界面表现为「执行后没变化」）。
     if kind == "mysql" {
         let pw = state.vault.get(&conn_id);
-        let url = db::build_url(&cfg, pw.as_deref(), database.as_deref())?;
+        let tunnel_addr = ensure_tunnel(&state, &conn_id, &cfg)?;
+        let url = match tunnel_addr {
+            Some((host, port)) => {
+                db::build_url_with_addr(&cfg, pw.as_deref(), database.as_deref(), &host, port)?
+            }
+            None => db::build_url(&cfg, pw.as_deref(), database.as_deref())?,
+        };
         let mut conn = sqlx::MySqlConnection::connect(&url)
             .await
             .map_err(|e| format!("获取连接失败：{e}"))?;
@@ -360,7 +473,7 @@ async fn table_indexes(
     db::indexes(&cfg, &pool, &node).await
 }
 
-/// 表外键列表。
+/// 表外键列表（本表引用了谁）。
 #[tauri::command]
 async fn table_foreign_keys(
     state: State<'_, AppCtx>,
@@ -370,6 +483,18 @@ async fn table_foreign_keys(
     let cfg = state.find(&conn_id)?;
     let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
     db::foreign_keys(&cfg, &pool, &node).await
+}
+
+/// 反向外键：哪些表引用了本表。
+#[tauri::command]
+async fn table_referenced_by(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+) -> Result<Vec<ForeignKeyMeta>, String> {
+    let cfg = state.find(&conn_id)?;
+    let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
+    db::referenced_by(&cfg, &pool, &node).await
 }
 
 /// 建表语句；数据库没有原生 DDL 接口时按字段元数据拼装并标记 `generated`。
@@ -603,6 +728,174 @@ async fn object_ddl(
     db::object_ddl(&cfg, &pool, &node).await
 }
 
+/// 只读连接统一拦截写操作（建表 / 删表 / 清表都走这里）。
+fn guard_readonly(cfg: &ConnectionConfig) -> Result<(), String> {
+    if cfg.read_only.unwrap_or(false) {
+        return Err("当前连接标记为「只读」，已阻止写操作".to_string());
+    }
+    Ok(())
+}
+
+/// 新增表的预览：只按列定义拼 CREATE TABLE，不执行。
+#[tauri::command]
+async fn table_create_preview(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+    table_name: String,
+    columns: Vec<NewColumn>,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let sql = db::create_table_sql(&cfg, &node, &table_name, &columns)?;
+    Ok(StructOpResult { sql, applied: None })
+}
+
+/// 新增表：先按列定义拼 CREATE TABLE，确认后在事务里执行。
+#[tauri::command]
+async fn table_create(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+    table_name: String,
+    columns: Vec<NewColumn>,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
+    let sql = db::create_table_sql(&cfg, &node, &table_name, &columns)?;
+    let applied = db::apply_statements(&pool, &sql).await?;
+    Ok(StructOpResult { sql, applied: Some(applied) })
+}
+
+/// 删除当前表的预览：只生成 DROP TABLE，不执行。
+#[tauri::command]
+async fn table_drop_preview(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let sql = db::drop_table_sql(&cfg, &node)?;
+    Ok(StructOpResult { sql, applied: None })
+}
+
+/// 删除当前表：DROP TABLE。
+#[tauri::command]
+async fn table_drop(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
+    let sql = db::drop_table_sql(&cfg, &node)?;
+    let applied = db::apply_statements(&pool, &sql).await?;
+    Ok(StructOpResult { sql, applied: Some(applied) })
+}
+
+/// 清空当前表数据的预览：只生成 TRUNCATE / DELETE，不执行。
+#[tauri::command]
+async fn table_truncate_preview(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let sql = db::truncate_table_sql(&cfg, &node)?;
+    Ok(StructOpResult { sql, applied: None })
+}
+
+/// 清空当前表数据：TRUNCATE（SQLite 用 DELETE），表结构保留。
+#[tauri::command]
+async fn table_truncate(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
+    let sql = db::truncate_table_sql(&cfg, &node)?;
+    let applied = db::apply_statements(&pool, &sql).await?;
+    Ok(StructOpResult { sql, applied: Some(applied) })
+}
+
+/// 列出作用域内全部基表名，供「删除所有表 / 清空所有表数据」弹窗先把清单与 SQL 列出来。
+#[tauri::command]
+async fn scope_tables(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+) -> Result<Vec<String>, String> {
+    let cfg = state.find(&conn_id)?;
+    let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
+    db::list_tables(&cfg, &pool, &node).await
+}
+
+/// 批量操作的预览：列出作用域内表名并拼好 SQL，不执行。
+#[tauri::command]
+async fn scope_preview(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+    mode: String,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
+    let tables = db::list_tables(&cfg, &pool, &node).await?;
+    if tables.is_empty() {
+        return Err("当前作用域下没有可操作的表".to_string());
+    }
+    let sql = match mode.as_str() {
+        "drop" => db::drop_all_sql(&cfg, &node, &tables),
+        _ => db::truncate_all_sql(&cfg, &node, &tables),
+    };
+    Ok(StructOpResult { sql, applied: None })
+}
+
+/// 删除作用域内全部表：逐条 DROP TABLE，任一失败整体回滚。
+#[tauri::command]
+async fn scope_drop_all(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
+    let tables = db::list_tables(&cfg, &pool, &node).await?;
+    if tables.is_empty() {
+        return Err("当前作用域下没有可删除的表".to_string());
+    }
+    let sql = db::drop_all_sql(&cfg, &node, &tables);
+    let applied = db::apply_statements(&pool, &sql).await?;
+    Ok(StructOpResult { sql, applied: Some(applied) })
+}
+
+/// 清空作用域内全部表数据：逐条 TRUNCATE / DELETE，表结构保留。
+#[tauri::command]
+async fn scope_truncate_all(
+    state: State<'_, AppCtx>,
+    conn_id: String,
+    node: NodeRef,
+) -> Result<StructOpResult, String> {
+    let cfg = state.find(&conn_id)?;
+    guard_readonly(&cfg)?;
+    let pool = pool_for(&state, &conn_id, &cfg, node.database.as_deref()).await?;
+    let tables = db::list_tables(&cfg, &pool, &node).await?;
+    if tables.is_empty() {
+        return Err("当前作用域下没有可清空的表".to_string());
+    }
+    let sql = db::truncate_all_sql(&cfg, &node, &tables);
+    let applied = db::apply_statements(&pool, &sql).await?;
+    Ok(StructOpResult { sql, applied: Some(applied) })
+}
+
 /// 导出当前表数据到 CSV（默认上限 10 万行，落盘路径由后端决定）。
 #[tauri::command]
 async fn export_csv(
@@ -616,7 +909,7 @@ async fn export_csv(
     db::export_csv(&cfg, &pool, &node, limit.unwrap_or(100_000)).await
 }
 
-/// 关闭并丢弃这个连接的全部连接池（前端目前未直接调用）。
+/// 关闭并丢弃这个连接的全部连接池与 SSH 隧道（前端目前未直接调用）。
 #[tauri::command]
 async fn close_connection(state: State<'_, AppCtx>, conn_id: String) -> Result<(), String> {
     let prefix = format!("{conn_id}|");
@@ -631,6 +924,11 @@ async fn close_connection(state: State<'_, AppCtx>, conn_id: String) -> Result<(
     };
     for pool in pools {
         pool.close().await;
+    }
+    if let Ok(mut tunnels) = state.tunnels.lock() {
+        if let Some(t) = tunnels.remove(&conn_id) {
+            t.close();
+        }
     }
     Ok(())
 }
@@ -649,6 +947,7 @@ pub fn run() {
                 configs: Mutex::new(configs),
                 vault: store::Vault::new(),
                 pools: Mutex::new(HashMap::new()),
+                tunnels: Mutex::new(HashMap::new()),
                 running: Mutex::new(HashMap::new()),
                 undo: Mutex::new(Vec::new()),
             });
@@ -665,6 +964,7 @@ pub fn run() {
             table_rows,
             table_indexes,
             table_foreign_keys,
+            table_referenced_by,
             table_ddl,
             sql_execute,
             sql_cancel,
@@ -679,6 +979,16 @@ pub fn run() {
             row_undo_delete,
             schema_map,
             object_ddl,
+            table_create_preview,
+            table_create,
+            table_drop_preview,
+            table_drop,
+            table_truncate_preview,
+            table_truncate,
+            scope_tables,
+            scope_preview,
+            scope_drop_all,
+            scope_truncate_all,
             export_csv,
             close_connection
         ])

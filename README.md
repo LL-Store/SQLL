@@ -19,6 +19,10 @@
     <img src="https://img.shields.io/badge/Tauri-2-orange" alt="Tauri 2">
 </p>
 
+<a href="docs/screenshots/overview.png"><img src="docs/screenshots/overview.png" alt="SQLL 主界面：结构树、数据网格、字段面板"></a>
+
+三栏就是全部：**左边找表，中间看数，右边看结构**。不用记快捷键，也不用先学一套查询语言才能打开一张表。
+
 ## 为什么是 SQLL
 
 - **一个界面，三种数据库。** MySQL、PostgreSQL、SQLite 共用同一套浏览、编辑、SQL、导出流程，换库不用换肌肉记忆。
@@ -35,6 +39,53 @@
 | 数据网格 | 服务端分页、列头排序、单元格双击编辑、勾选行、超 200 行自动虚拟滚动 |
 | 右侧面板 | 字段类型 / 可空 / 默认值 / 主键 / 注释、索引、外键、DDL |
 | 底部状态栏 | 当前连接、当前表、分页信息、版本号 |
+
+## 五个最常用的瞬间
+
+### 1. 打开一张表，先看清楚它长什么样
+
+选中表名，数据立刻铺开；点右边的「字段」能看到每一列的类型、默认值和注释，切到「索引」「DDL」还能直接复制建表语句。
+分页在底部，列宽按内容自适应，`NULL` 用斜体标出来，不会和空字符串混在一起。
+
+### 2. 批量删行：勾选、看语句、一次执行
+
+表头可以一键全选本页，勾中的行立刻变成粉底 + 左侧强调条；工具条出现「删除选中（N）」。
+点下去先看到 `delete ... where ("id"::text='1') or ("id"::text='2')`，确认后才真正删除。
+
+<img src="docs/screenshots/bulk-delete.png" alt="勾选多行后的批量删除">
+
+删完右下角会浮出撤销条 —— 删除前整行已经拍成 `INSERT` 快照，点一下就能原样插回（保留最近一次，10 秒后自动收起）。
+
+### 3. 新增一行：留空就交给数据库
+
+按字段元数据生成表单，留空的列不会拼进 SQL：自增走序列、有默认值走默认值、可空的给 `NULL`。
+输入时实时预览将要执行的 `INSERT`，不用先背语法。
+
+<img src="docs/screenshots/insert.png" alt="新增一行：字段表单与实时 SQL 预览">
+
+### 4. SQL 编辑器：方言、补全、多语句
+
+CodeMirror 6 按连接类型切方言，补全覆盖整个 schema —— 输入 `select * from ord` 就会浮出 `orders`、`order_items`。
+`⌘↵`（Windows 为 `Ctrl+Enter`）执行；一次可以贴多条语句，按顶层 `;` 拆分，字符串、注释、`$$` 里的分号不会被误切，遇错即停并回滚。
+查询回显列与行，写语句回显影响行数；跑偏了可以点「停止」。
+
+<img src="docs/screenshots/sql.png" alt="SQL 编辑器与整库补全">
+
+### 5. 深色模式，不是简单反色
+
+所有颜色都收在 `src/styles/tokens.css` 的令牌里，深色只换一套变量：底色压到 `#14161a`，选中行变成暗红底 + 橙字，编辑器跟着一起切，不用重建实例。
+主题三档：浅色 / 深色 / 跟随系统。
+
+<img src="docs/screenshots/dark.png" alt="深色主题下的数据网格">
+
+### 顺手就能用的两个小东西
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/palette.png" alt="⌘K 命令面板"><br><b>⌘K 命令面板</b>：刷新、导出、开关 SQL、关标签、新建连接，键盘直达。</td>
+<td width="50%"><img src="docs/screenshots/settings.png" alt="设置：行数、字号、主题、仓库地址"><br><b>设置</b>：默认每页行数、编辑器字号、主题三档，以及项目仓库入口。</td>
+</tr>
+</table>
 
 ## 数据库支持
 
