@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
-const KEYRING_SERVICE: &str = "com.llstore.sqll";
+const KEYRING_SERVICE: &str = "io.github.zxl20070701.sqll";
 
 pub fn data_file(app: &AppHandle) -> PathBuf {
     let dir = app
